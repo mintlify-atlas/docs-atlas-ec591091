@@ -1,0 +1,468 @@
+---
+title: "app — NiceGUI's FastAPI Application Object"
+sidebarTitle: "app"
+description: "Full API reference for the NiceGUI app object: lifecycle hooks, state properties, static files, middleware, native config, and FastAPI inheritance."
+---
+
+`nicegui.app` is the central application object in NiceGUI. It is a subclass of FastAPI's `FastAPI`, so every FastAPI method — routing, middleware, dependency injection, exception handlers — is available directly on it. NiceGUI extends it with lifecycle hooks, storage, native-window configuration, and URL tracking.
+
+```python
+from nicegui import app, ui
+
+app.on_startup(lambda: print('Server started'))
+
+@ui.page('/')
+def index():
+    ui.label(f'Listening at: {app.urls}')
+
+ui.run()
+```
+
+## Import
+
+```python
+from nicegui import app
+```
+
+`app` is a module-level singleton of the `App` class, which extends `fastapi.FastAPI`.
+
+---
+
+## Lifecycle hooks
+
+Lifecycle callbacks are the primary way to run code at specific points in the server's life. All handlers can be synchronous or asynchronous.
+
+### `app.on_startup(handler)`
+
+```python
+def on_startup(handler: Callable) -> None
+```
+
+Register a callback to be invoked when NiceGUI starts or restarts. Must be registered **before** `ui.run()` is called.
+
+```python
+from nicegui import app
+
+@app.on_startup
+async def startup():
+    print('Initializing database connection...')
+```
+
+<Warning>
+Calling `app.on_startup()` after `ui.run()` has already started the server raises a `RuntimeError`.
+</Warning>
+
+### `app.on_shutdown(handler)`
+
+```python
+def on_shutdown(handler: Callable) -> None
+```
+
+Register a callback invoked when NiceGUI shuts down or restarts. All tasks still running are automatically cancelled after shutdown handlers complete.
+
+```python
+@app.on_shutdown
+async def cleanup():
+    await db.close()
+```
+
+### `app.on_connect(handler)`
+
+```python
+def on_connect(handler: Callable) -> None
+```
+
+Called every time a client establishes a WebSocket connection. The handler optionally accepts a `nicegui.Client` parameter.
+
+```python
+from nicegui import Client, app
+
+def on_user_connect(client: Client) -> None:
+    print(f'User connected from {client.ip}')
+
+app.on_connect(on_user_connect)
+```
+
+### `app.on_disconnect(handler)`
+
+```python
+def on_disconnect(handler: Callable) -> None
+```
+
+Called every time a client disconnects (including temporary reconnects). The handler optionally accepts a `nicegui.Client` parameter.
+
+### `app.on_delete(handler)`
+
+```python
+def on_delete(handler: Callable) -> None
+```
+
+Called when a client is permanently deleted — either after the reconnect timeout expires, or programmatically. The handler optionally accepts a `nicegui.Client` parameter.
+
+```python
+from nicegui import Client, app
+
+app.on_delete(lambda client: print(f'Client {client.id} deleted'))
+```
+
+<Note>
+`on_disconnect` fires on every network drop (including brief ones). `on_delete` fires only when the client object is permanently removed.
+</Note>
+
+### `app.on_exception(handler)`
+
+```python
+def on_exception(handler: Callable) -> None
+```
+
+Register a global exception handler. The handler is called with an optional `Exception` argument whenever an unhandled exception occurs anywhere in NiceGUI (background tasks, event handlers, etc.).
+
+```python
+import logging
+from nicegui import app
+
+app.on_exception(lambda e: logging.error(f'Unhandled exception: {e}'))
+```
+
+### `app.on_page_exception(handler)`
+
+```python
+def on_page_exception(handler: Callable) -> None
+```
+
+Called when an exception is raised inside a page builder function. Unlike `on_exception`, elements created inside this handler are **rendered as the error page** shown to the user. The handler optionally accepts an `Exception` argument. Asynchronous handlers are not supported.
+
+```python
+from nicegui import app, ui
+
+@app.on_page_exception
+def custom_error_page(e: Exception):
+    ui.label('Oops!').classes('text-h4')
+    ui.label(str(e))
+```
+
+---
+
+## State properties
+
+Use these read-only properties to check the current server state from anywhere in your application, including startup/shutdown handlers.
+
+| Property | Type | Description |
+|---|---|---|
+| `app.is_starting` | `bool` | `True` while startup handlers are running. |
+| `app.is_started` | `bool` | `True` once the server is fully operational. |
+| `app.is_stopping` | `bool` | `True` while shutdown handlers are running. |
+| `app.is_stopped` | `bool` | `True` after the server has fully stopped. |
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    ui.label(f'Server started: {app.is_started}')
+```
+
+---
+
+## `app.urls`
+
+```python
+urls: ObservableSet[str]
+```
+
+A set of the server's active base URLs, populated once the server binds its socket. Useful for displaying clickable links or logging the listen address.
+
+```python
+from nicegui import app
+
+@app.on_startup
+def show_urls():
+    for url in app.urls:
+        print(f'Serving at {url}')
+```
+
+---
+
+## `app.shutdown()`
+
+```python
+def shutdown() -> None
+```
+
+Programmatically stop the NiceGUI server. In native mode, also destroys the native window.
+
+```python
+ui.button('Stop server', on_click=app.shutdown)
+```
+
+---
+
+## `app.clients()`
+
+```python
+@staticmethod
+def clients(path: str | None = None) -> Iterator[Client]
+```
+
+Iterate over all currently connected `Client` instances. Pass a `path` string to filter by page route.
+
+```python
+from nicegui import app
+
+for client in app.clients('/dashboard'):
+    await client.run_javascript('console.log("hello")')
+```
+
+<ParamField path="path" type="str | None" default="None">
+  Filter clients to those whose `client.page.path` matches this string. Pass `None` to iterate all clients regardless of page.
+</ParamField>
+
+---
+
+## Static and media files
+
+### `app.add_static_files()`
+
+```python
+def add_static_files(
+    url_path: str,
+    local_directory: str | Path,
+    *,
+    follow_symlink: bool = False,
+    max_cache_age: int = 3600,
+) -> None
+```
+
+Serve an entire directory of static files (images, fonts, downloads) under a URL prefix. Files are cached by the browser using the `Cache-Control` header.
+
+```python
+app.add_static_files('/images', 'assets/images')
+# Now accessible at http://localhost:8080/images/logo.png
+```
+
+<ParamField path="url_path" type="str">
+  URL prefix under which files are served. Must start with `/` and must not be `'/'` (that would shadow NiceGUI's internal routes).
+</ParamField>
+
+<ParamField path="local_directory" type="str | Path">
+  Path to the local directory whose contents are exposed.
+</ParamField>
+
+<ParamField path="follow_symlink" type="bool" default="False">
+  Follow symbolic links when resolving file paths.
+</ParamField>
+
+<ParamField path="max_cache_age" type="int" default="3600">
+  Value (in seconds) for the `max-age` directive in the `Cache-Control` response header.
+</ParamField>
+
+### `app.add_static_file()`
+
+```python
+def add_static_file(
+    *,
+    local_file: str | Path,
+    url_path: str | None = None,
+    single_use: bool = False,
+    strict: bool = True,
+    max_cache_age: int = 3600,
+) -> str
+```
+
+Serve a single static file. Returns the URL-encoded path at which the file is accessible.
+
+<ParamField path="local_file" type="str | Path">
+  Path to the file to serve.
+</ParamField>
+
+<ParamField path="url_path" type="str | None" default="None">
+  Explicit URL path. If `None`, a unique auto-generated path is used.
+</ParamField>
+
+<ParamField path="single_use" type="bool" default="False">
+  Remove the route after the first download. Useful for one-time download links.
+</ParamField>
+
+<ParamField path="strict" type="bool" default="True">
+  Raise `FileNotFoundError` if the file does not exist at registration time.
+</ParamField>
+
+<ParamField path="max_cache_age" type="int" default="3600">
+  Browser cache duration in seconds. Ignored (set to `no-store`) when `single_use=True`.
+</ParamField>
+
+### `app.add_media_files()`
+
+```python
+def add_media_files(url_path: str, local_directory: str | Path) -> None
+```
+
+Serve a directory of media files with HTTP range-request support (required for seeking in audio/video). Use this for `.mp4`, `.mp3`, and similar media.
+
+```python
+app.add_media_files('/videos', 'assets/videos')
+```
+
+### `app.add_media_file()`
+
+```python
+def add_media_file(
+    *,
+    local_file: str | Path,
+    url_path: str | None = None,
+    single_use: bool = False,
+    strict: bool = True,
+) -> str
+```
+
+Serve a single media file with range-request support. Returns the URL-encoded path.
+
+---
+
+## Routing and middleware
+
+Because `app` is a `FastAPI` instance, you can use the full FastAPI routing API:
+
+```python
+from fastapi import Request
+from nicegui import app
+
+# Standard FastAPI route
+@app.get('/api/status')
+def status():
+    return {'running': app.is_started}
+
+# Add middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        print(f'{request.method} {request.url}')
+        return await call_next(request)
+
+app.add_middleware(LoggingMiddleware)
+```
+
+---
+
+## `app.native`
+
+```python
+native: NativeConfig
+```
+
+Configuration object for the pywebview native window. Set properties before calling `ui.run(native=True)`.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `start_args` | `dict[str, Any]` | Arguments passed to `webview.start()`. |
+| `window_args` | `dict[str, Any]` | Arguments passed to `webview.create_window()`. |
+| `settings` | `dict[str, Any]` | pywebview global settings. |
+| `main_window` | `WindowProxy \| None` | Proxy for the active native window after startup. |
+
+```python
+from nicegui import app, ui
+
+app.native.window_args['resizable'] = False
+app.native.start_args['debug'] = True
+
+ui.run(native=True, title='Desktop App')
+```
+
+### `app.native.on(event_type, handler)`
+
+```python
+def on(event_type: str, handler: Handler[NativeEventArguments]) -> None
+```
+
+Register a handler for a native window event. Supported events: `shown`, `loaded`, `minimized`, `maximized`, `restored`, `resized`, `moved`, `closed`, `drop`.
+
+```python
+app.native.on('minimized', lambda: print('Window minimized'))
+```
+
+---
+
+## `app.storage`
+
+```python
+storage: Storage
+```
+
+Entry point to NiceGUI's storage system. See the [Storage API reference](/api/storage-api) for full details on all storage scopes.
+
+| Scope | Key | Persistence | Notes |
+|---|---|---|---|
+| `app.storage.general` | shared | Server restart | Shared across all users |
+| `app.storage.user` | session cookie | Configurable | Per-user, requires `storage_secret` |
+| `app.storage.tab` | browser tab | Session | Per tab, in-memory |
+| `app.storage.browser` | cookie | Browser session | Requires `storage_secret` |
+| `app.storage.client` | client ID | Connection | Ephemeral per page load |
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    app.storage.general['visits'] = app.storage.general.get('visits', 0) + 1
+    ui.label(f'Total visits: {app.storage.general["visits"]}')
+
+ui.run(storage_secret='my-secret')
+```
+
+---
+
+## `app.colors()`
+
+```python
+def colors(
+    *,
+    primary: str = '#5898d4',
+    secondary: str = '#26a69a',
+    accent: str = '#9c27b0',
+    dark: str = '#1d1d1d',
+    dark_page: str = '#121212',
+    positive: str = '#21ba45',
+    negative: str = '#c10015',
+    info: str = '#31ccec',
+    warning: str = '#f2c037',
+    **custom_colors: str,
+) -> None
+```
+
+Set Quasar's global brand colors. Call this before `ui.run()` to configure the default palette for all pages.
+
+```python
+app.colors(primary='#ff6600', secondary='#00aaff')
+```
+
+<Tip>
+Use `ui.colors()` inside a page function to set colors on a per-page basis after the page has been rendered.
+</Tip>
+
+---
+
+## FastAPI inheritance
+
+`app` is a fully functional `FastAPI` instance. All standard FastAPI patterns work:
+
+```python
+from fastapi import Depends, HTTPException
+from nicegui import app
+
+# OpenAPI docs
+from fastapi.openapi.utils import get_openapi
+
+# Background tasks
+from fastapi import BackgroundTasks
+
+@app.post('/api/items')
+async def create_item(name: str, background_tasks: BackgroundTasks):
+    background_tasks.add_task(process_item, name)
+    return {'name': name}
+
+# Exception handlers
+@app.exception_handler(404)
+async def not_found(request, exc):
+    return {'error': 'not found'}
+```

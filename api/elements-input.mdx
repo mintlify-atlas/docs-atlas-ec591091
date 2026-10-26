@@ -1,0 +1,712 @@
+---
+title: "NiceGUI Input Elements API Reference"
+sidebarTitle: "Input Elements"
+description: "API reference for NiceGUI form and input elements: text input, textarea, number, select, radio, checkbox, switch, slider, date, time, color, upload, and button."
+---
+
+NiceGUI provides a rich set of form controls for collecting user input. All input elements inherit from the `ValueElement` mixin, which exposes `.value`, `bind_value()`, `bind_value_to()`, `bind_value_from()`, and `set_value()` as universal patterns. Most elements also accept an `on_change` callback whose argument is a `ValueChangeEventArguments` object with `.value`, `.previous_value`, `.sender`, and `.client` fields.
+
+---
+
+## `ui.button`
+
+```python
+ui.button(
+    text: str = '',
+    *,
+    on_click: Handler[ClickEventArguments] | None = None,
+    color: str | None = 'primary',
+    icon: str | None = None,
+)
+```
+
+A clickable push-button based on Quasar's `QBtn`.
+
+<ParamField path="text" type="str" default="">
+  Button label text.
+</ParamField>
+
+<ParamField path="on_click" type="Handler | None" default="None">
+  Callback invoked when the button is clicked. Receives `ClickEventArguments`.
+</ParamField>
+
+<ParamField path="color" type="str | None" default="'primary'">
+  Button color — Quasar, Tailwind, or CSS color. `None` removes all color styling.
+</ParamField>
+
+<ParamField path="icon" type="str | None" default="None">
+  Optional Material Icon name to display on the button (snake_case, e.g. `'send'`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.button('Click me', on_click=lambda: ui.notify('Clicked!'))
+ui.button('Icon button', icon='thumb_up', color='teal')
+
+# await a click
+async def handle():
+    btn = ui.button('Wait for click')
+    await btn.clicked()
+    ui.notify('Done!')
+```
+
+**Extra methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.on_click(callback)` | Add another click handler after construction. |
+| `await btn.clicked()` | Async: suspend until the button is clicked once. |
+
+---
+
+## `ui.input`
+
+```python
+ui.input(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: str | None = '',
+    password: bool = False,
+    password_toggle_button: bool = False,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    on_change: Handler[ValueChangeEventArguments[str | None]] | None = None,
+    autocomplete: list[str] | None = None,
+    validation: ValidationFunction | ValidationDict | None = None,
+)
+```
+
+A single-line text input based on Quasar's `QInput`.
+
+<ParamField path="label" type="str | None" default="None">
+  Floating label displayed above the field.
+</ParamField>
+
+<ParamField path="placeholder" type="str | None" default="None">
+  Placeholder text shown when the field is empty.
+</ParamField>
+
+<ParamField path="value" type="str | None" default="''">
+  Initial value.
+</ParamField>
+
+<ParamField path="password" type="bool" default="False">
+  Mask the input text (password mode).
+</ParamField>
+
+<ParamField path="password_toggle_button" type="bool" default="False">
+  Show a visibility toggle button next to a password field.
+</ParamField>
+
+<ParamField path="prefix" type="str | None" default="None">
+  Static text prepended inside the input (e.g. `'$'`).
+</ParamField>
+
+<ParamField path="suffix" type="str | None" default="None">
+  Static text appended inside the input (e.g. `'.com'`).
+</ParamField>
+
+<ParamField path="on_change" type="Handler | None" default="None">
+  Called on every keystroke. For blur or Enter events, use `.on('blur', ...)` or `.on('keydown.enter', ...)`.
+</ParamField>
+
+<ParamField path="autocomplete" type="list[str] | None" default="None">
+  Dropdown autocomplete suggestions.
+</ParamField>
+
+<ParamField path="validation" type="ValidationFunction | ValidationDict | None" default="None">
+  Validation rules as a `{'Error message': lambda v: condition}` dict, or a callable returning `str | None`. Displayed as an error message below the input.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.input(label='Username', placeholder='Enter username', autocomplete=['alice', 'bob'])
+ui.input(label='Password', password=True, password_toggle_button=True)
+ui.input(
+    label='Email',
+    validation={'Invalid email': lambda v: '@' in (v or '')},
+)
+
+# React only on blur
+inp = ui.input(label='Search')
+inp.on('blur', lambda e: ui.notify(f'Searching: {inp.value}'))
+```
+
+---
+
+## `ui.textarea`
+
+```python
+ui.textarea(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: str | None = '',
+    on_change: Handler[ValueChangeEventArguments[str | None]] | None = None,
+    validation: ValidationFunction | ValidationDict | None = None,
+)
+```
+
+A multi-line text input. Extends `ui.input` — all `ui.input` parameters and methods apply.
+
+<ParamField path="label" type="str | None" default="None">
+  Floating label.
+</ParamField>
+
+<ParamField path="value" type="str | None" default="''">
+  Initial multi-line text content.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.textarea(label='Notes', placeholder='Type your notes here…').props('rows=5')
+```
+
+---
+
+## `ui.number`
+
+```python
+ui.number(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: float | None = None,
+    min: float | None = None,
+    max: float | None = None,
+    precision: int | None = None,
+    step: float | None = None,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    format: str | None = None,
+    on_change: Handler[ValueChangeEventArguments[float | None]] | None = None,
+    validation: ValidationFunction | ValidationDict | None = None,
+)
+```
+
+A numeric input field with optional range clamping and decimal precision.
+
+<ParamField path="label" type="str | None" default="None">
+  Field label.
+</ParamField>
+
+<ParamField path="value" type="float | None" default="None">
+  Initial numeric value.
+</ParamField>
+
+<ParamField path="min" type="float | None" default="None">
+  Minimum allowed value.
+</ParamField>
+
+<ParamField path="max" type="float | None" default="None">
+  Maximum allowed value.
+</ParamField>
+
+<ParamField path="precision" type="int | None" default="None">
+  Number of decimal places. Negative values truncate before the decimal point.
+</ParamField>
+
+<ParamField path="step" type="float | None" default="None">
+  Step size for the stepper arrow buttons.
+</ParamField>
+
+<ParamField path="prefix" type="str | None" default="None">
+  Text prepended inside the input (e.g. `'$'`).
+</ParamField>
+
+<ParamField path="suffix" type="str | None" default="None">
+  Text appended inside the input (e.g. `' kg'`).
+</ParamField>
+
+<ParamField path="format" type="str | None" default="None">
+  `printf`-style format string, e.g. `'%.2f'`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.number(label='Price', prefix='$', min=0, step=0.01, format='%.2f')
+ui.number(label='Age', min=0, max=120, precision=0)
+```
+
+**Runtime properties:**
+
+```python
+n = ui.number(label='Temperature', suffix='°C')
+n.min = -50
+n.max = 150
+n.sanitize()  # clamp current value into range
+```
+
+---
+
+## `ui.select`
+
+```python
+ui.select(
+    options: list | dict,
+    *,
+    label: str | None = None,
+    value: Any = None,
+    on_change: Handler[ValueChangeEventArguments[Any]] | None = None,
+    with_input: bool = False,
+    new_value_mode: Literal['add', 'add-unique', 'toggle'] | None = None,
+    multiple: bool = False,
+    clearable: bool = False,
+    validation: ValidationFunction | ValidationDict | None = None,
+    key_generator: Callable | Iterator | None = None,
+)
+```
+
+A dropdown select element based on Quasar's `QSelect`.
+
+<ParamField path="options" type="list | dict" required>
+  Options as a list (values equal to labels) or a dict mapping `{value: label}`.
+</ParamField>
+
+<ParamField path="label" type="str | None" default="None">
+  Floating label displayed above the select.
+</ParamField>
+
+<ParamField path="value" type="Any" default="None">
+  Initially selected value.
+</ParamField>
+
+<ParamField path="with_input" type="bool" default="False">
+  Show a filter/search input inside the dropdown.
+</ParamField>
+
+<ParamField path="new_value_mode" type="str | None" default="None">
+  Allow user-typed values: `'add'`, `'add-unique'`, or `'toggle'`. Implies `with_input=True`.
+</ParamField>
+
+<ParamField path="multiple" type="bool" default="False">
+  Allow multi-selection (returns a list).
+</ParamField>
+
+<ParamField path="clearable" type="bool" default="False">
+  Show a clear button to reset the selection.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.select(['Apple', 'Banana', 'Cherry'], value='Apple', label='Fruit')
+ui.select({'us': 'United States', 'gb': 'United Kingdom'}, label='Country')
+ui.select(['Red', 'Green', 'Blue'], multiple=True, label='Colors')
+
+# Dynamic options
+s = ui.select([], label='Dynamic').props('clearable')
+s.options = ['Option A', 'Option B', 'Option C']
+s.update()
+```
+
+---
+
+## `ui.radio`
+
+```python
+ui.radio(
+    options: list | dict,
+    *,
+    value: Any = None,
+    on_change: Handler[ValueChangeEventArguments[Any]] | None = None,
+)
+```
+
+A group of radio buttons based on Quasar's `QRadio`.
+
+<ParamField path="options" type="list | dict" required>
+  Options as a list or `{value: label}` dict.
+</ParamField>
+
+<ParamField path="value" type="Any" default="None">
+  Initially selected option.
+</ParamField>
+
+```python
+from nicegui import ui
+
+r = ui.radio(['Small', 'Medium', 'Large'], value='Medium')
+ui.label('').bind_text(r, 'value', lambda v: f'Selected: {v}')
+```
+
+---
+
+## `ui.checkbox`
+
+```python
+ui.checkbox(
+    text: str = '',
+    *,
+    value: bool | None = False,
+    on_change: Handler[ValueChangeEventArguments[bool | None]] | None = None,
+)
+```
+
+A single checkbox based on Quasar's `QCheckbox`.
+
+<ParamField path="text" type="str" default="">
+  Label text displayed next to the checkbox.
+</ParamField>
+
+<ParamField path="value" type="bool | None" default="False">
+  Initial checked state. `None` represents an indeterminate state.
+</ParamField>
+
+```python
+from nicegui import ui
+
+cb = ui.checkbox('I agree to the terms', value=False)
+ui.button('Submit').bind_enabled(cb, 'value')
+```
+
+---
+
+## `ui.switch`
+
+```python
+ui.switch(
+    text: str = '',
+    *,
+    value: bool = False,
+    on_change: Handler[ValueChangeEventArguments[bool]] | None = None,
+)
+```
+
+A toggle switch based on Quasar's `QToggle`.
+
+<ParamField path="text" type="str" default="">
+  Label text.
+</ParamField>
+
+<ParamField path="value" type="bool" default="False">
+  Initial on/off state.
+</ParamField>
+
+```python
+from nicegui import ui
+
+sw = ui.switch('Dark mode', value=False)
+ui.label('').bind_text(sw, 'value', lambda v: 'ON' if v else 'OFF')
+```
+
+---
+
+## `ui.toggle`
+
+```python
+ui.toggle(
+    options: list | dict,
+    *,
+    value: Any = None,
+    on_change: Handler[ValueChangeEventArguments[Any]] | None = None,
+    multiple: bool = False,
+    clearable: bool = False,
+)
+```
+
+A button-group toggle that selects from a fixed set of options.
+
+<ParamField path="options" type="list | dict" required>
+  Options as a list or `{value: label}` dict.
+</ParamField>
+
+<ParamField path="multiple" type="bool" default="False">
+  Allow multiple selections simultaneously.
+</ParamField>
+
+<ParamField path="clearable" type="bool" default="False">
+  Allow clicking the active option to deselect it.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.toggle(['Day', 'Week', 'Month'], value='Day')
+```
+
+---
+
+## `ui.slider`
+
+```python
+ui.slider(
+    *,
+    min: float,
+    max: float,
+    step: float = 1.0,
+    value: float | None = None,
+    on_change: Handler[ValueChangeEventArguments[float | None]] | None = None,
+)
+```
+
+A horizontal drag slider based on Quasar's `QSlider`. `min` and `max` are required keyword arguments.
+
+<ParamField path="min" type="float" required>
+  Minimum (left) bound.
+</ParamField>
+
+<ParamField path="max" type="float" required>
+  Maximum (right) bound.
+</ParamField>
+
+<ParamField path="step" type="float" default="1.0">
+  Snap interval.
+</ParamField>
+
+<ParamField path="value" type="float | None" default="None">
+  Initial position.
+</ParamField>
+
+<ParamField path="on_change" type="Handler | None" default="None">
+  Called continuously while dragging. Use `.on('change', ...)` to react only on mouse-up.
+</ParamField>
+
+```python
+from nicegui import ui
+
+sl = ui.slider(min=0, max=100, step=5, value=40)
+ui.label('').bind_text(sl, 'value', lambda v: f'Volume: {v}%')
+```
+
+---
+
+## `ui.range`
+
+```python
+ui.range(
+    *,
+    min: float,
+    max: float,
+    step: float = 1.0,
+    value: dict | None = None,
+    on_change: Handler[ValueChangeEventArguments[dict | None]] | None = None,
+)
+```
+
+A dual-handle range slider. The `.value` property is a `{'min': ..., 'max': ...}` dict.
+
+<ParamField path="min" type="float" required>
+  Slider lower bound.
+</ParamField>
+
+<ParamField path="max" type="float" required>
+  Slider upper bound.
+</ParamField>
+
+<ParamField path="value" type="dict | None" default="None">
+  Initial range, e.g. `{'min': 20, 'max': 80}`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+r = ui.range(min=0, max=100, value={'min': 20, 'max': 80})
+ui.label('').bind_text(r, 'value', lambda v: f'{v["min"]} – {v["max"]}')
+```
+
+---
+
+## `ui.knob`
+
+```python
+ui.knob(
+    value: float = 0.0,
+    *,
+    min: float = 0.0,
+    max: float = 1.0,
+    step: float = 0.01,
+    color: str | None = 'primary',
+    center_color: str | None = None,
+    track_color: str | None = None,
+    size: str = '2em',
+    show_value: bool = False,
+    on_change: Handler | None = None,
+)
+```
+
+A circular knob dial based on Quasar's `QKnob`.
+
+<ParamField path="value" type="float" default="0.0">
+  Initial knob position.
+</ParamField>
+
+<ParamField path="min" type="float" default="0.0">
+  Minimum value.
+</ParamField>
+
+<ParamField path="max" type="float" default="1.0">
+  Maximum value.
+</ParamField>
+
+<ParamField path="color" type="str | None" default="'primary'">
+  Arc fill color.
+</ParamField>
+
+<ParamField path="track_color" type="str | None" default="None">
+  Background track color.
+</ParamField>
+
+```python
+from nicegui import ui
+
+knob = ui.knob(0.3, min=0, max=1, step=0.01, show_value=True, color='teal')
+```
+
+---
+
+## `ui.date`
+
+```python
+ui.date(
+    value: str | None = None,
+    *,
+    mask: str = 'YYYY/MM/DD',
+    on_change: Handler[ValueChangeEventArguments[str | None]] | None = None,
+)
+```
+
+An inline or popup date picker based on Quasar's `QDate`. The value is a formatted string matching `mask`.
+
+<ParamField path="value" type="str | None" default="None">
+  Initial date string (e.g. `'2024/06/15'`).
+</ParamField>
+
+<ParamField path="mask" type="str" default="'YYYY/MM/DD'">
+  [Quasar date mask](https://quasar.dev/vue-components/date#model-mask) for parsing and formatting.
+</ParamField>
+
+```python
+from nicegui import ui
+
+d = ui.date('2024/01/01')
+ui.label('').bind_text(d, 'value', lambda v: f'Selected: {v}')
+```
+
+---
+
+## `ui.time`
+
+```python
+ui.time(
+    value: str | None = None,
+    *,
+    mask: str = 'HH:mm',
+    on_change: Handler[ValueChangeEventArguments[str | None]] | None = None,
+)
+```
+
+An inline or popup time picker based on Quasar's `QTime`.
+
+<ParamField path="value" type="str | None" default="None">
+  Initial time string (e.g. `'14:30'`).
+</ParamField>
+
+<ParamField path="mask" type="str" default="'HH:mm'">
+  Time format mask.
+</ParamField>
+
+```python
+from nicegui import ui
+
+t = ui.time('09:00')
+ui.label('').bind_text(t, 'value', lambda v: f'Time: {v}')
+```
+
+---
+
+## `ui.color_input`
+
+```python
+ui.color_input(
+    label: str = '',
+    *,
+    placeholder: str = 'Pick a color',
+    value: str = '#000000',
+    on_change: Handler[ValueChangeEventArguments[str]] | None = None,
+)
+```
+
+A text input with an inline color picker popup. The value is a hex color string.
+
+<ParamField path="label" type="str" default="">
+  Field label.
+</ParamField>
+
+<ParamField path="value" type="str" default="'#000000'">
+  Initial hex color.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ci = ui.color_input(label='Background color', value='#4CAF50')
+ui.label('').bind_text(ci, 'value', lambda v: f'Color: {v}')
+```
+
+---
+
+## `ui.upload`
+
+```python
+ui.upload(
+    *,
+    multiple: bool = False,
+    max_file_size: int = 0,
+    max_total_size: int = 0,
+    max_files: int = 0,
+    on_upload: Handler[UploadEventArguments] | None = None,
+    on_rejected: Handler[UploadEventArguments] | None = None,
+    label: str = '',
+    auto_upload: bool = False,
+)
+```
+
+A file upload widget based on Quasar's `QUploader`.
+
+<ParamField path="multiple" type="bool" default="False">
+  Allow selecting multiple files at once.
+</ParamField>
+
+<ParamField path="max_file_size" type="int" default="0">
+  Maximum size per file in bytes. `0` means no limit.
+</ParamField>
+
+<ParamField path="max_files" type="int" default="0">
+  Maximum number of queued files. `0` means no limit.
+</ParamField>
+
+<ParamField path="on_upload" type="Handler | None" default="None">
+  Callback receiving `UploadEventArguments` with `.name`, `.content` (IO), `.type`, and `.size`.
+</ParamField>
+
+<ParamField path="on_rejected" type="Handler | None" default="None">
+  Callback invoked when a file is rejected by size or type constraints.
+</ParamField>
+
+<ParamField path="label" type="str" default="">
+  Button label text.
+</ParamField>
+
+<ParamField path="auto_upload" type="bool" default="False">
+  Upload immediately after file selection.
+</ParamField>
+
+```python
+from nicegui import ui
+
+def handle_upload(e):
+    content = e.content.read().decode()
+    ui.notify(f'Received {e.name}: {len(content)} bytes')
+
+ui.upload(on_upload=handle_upload, max_file_size=1_000_000).props('accept=".txt,.csv"')
+```
+
+<Note>
+Use `.props('accept=".png,.jpg"')` to restrict accepted file types via the HTML `accept` attribute.
+</Note>

@@ -1,0 +1,563 @@
+---
+title: "Data Display Elements in NiceGUI"
+sidebarTitle: "Data Display"
+description: "Display structured data in NiceGUI with tables, AG Grid, trees, lists, timelines, logs, progress indicators, and more — with real code examples."
+---
+
+NiceGUI provides several high-level elements for presenting structured and dynamic data. From simple sortable tables to enterprise-grade AG Grid instances, from hierarchical trees to scrolling live logs, these elements handle data presentation so you can focus on your application logic.
+
+## `ui.table`
+
+A feature-rich data table backed by Quasar's `QTable`. Supports sorting, pagination, selection, and custom cell slots.
+
+**Constructor**
+
+```python
+ui.table(
+    *,
+    rows: list[dict],
+    columns: list[dict] | None = None,
+    column_defaults: dict | None = None,
+    row_key: str = 'id',
+    title: str | None = None,
+    selection: Literal[None, 'single', 'multiple'] = None,
+    pagination: int | dict | None = None,
+    on_select: Handler[TableSelectionEventArguments] | None = None,
+    on_pagination_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+### Column definition format
+
+Each column in the `columns` list is a `dict` with the following keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `name` | `str` | Unique column identifier |
+| `label` | `str` | Column header text |
+| `field` | `str` | Key in the row dict to display |
+| `sortable` | `bool` | Whether the column is sortable |
+| `align` | `str` | `'left'`, `'right'`, or `'center'` |
+
+**Example**
+
+```python
+from nicegui import ui
+
+columns = [
+    {'name': 'name',  'label': 'Name',       'field': 'name',  'sortable': True},
+    {'name': 'age',   'label': 'Age',        'field': 'age',   'sortable': True, 'align': 'right'},
+    {'name': 'email', 'label': 'Email',      'field': 'email'},
+    {'name': 'role',  'label': 'Role',       'field': 'role'},
+]
+
+rows = [
+    {'id': 1, 'name': 'Alice',   'age': 30, 'email': 'alice@example.com',   'role': 'Admin'},
+    {'id': 2, 'name': 'Bob',     'age': 25, 'email': 'bob@example.com',     'role': 'User'},
+    {'id': 3, 'name': 'Charlie', 'age': 35, 'email': 'charlie@example.com', 'role': 'User'},
+]
+
+table = ui.table(
+    columns=columns,
+    rows=rows,
+    row_key='id',
+    title='Users',
+    selection='multiple',
+    pagination=10,
+    on_select=lambda e: ui.notify(f'{len(e.selection)} selected'),
+)
+
+ui.run()
+```
+
+<Tip>
+Cells must not contain Python lists — convert them to strings first or use a custom `body-cell-{name}` slot template to avoid browser crashes.
+</Tip>
+
+---
+
+## `ui.aggrid`
+
+An enterprise-grade data grid powered by [AG Grid](https://www.ag-grid.com/). Pass a standard AG Grid `options` dict.
+
+**Constructor**
+
+```python
+ui.aggrid(
+    options: dict,
+    *,
+    html_columns: list[int] = [],
+    theme: Literal['quartz', 'balham', 'material', 'alpine'] | None = None,
+    auto_size_columns: bool | None = None,
+    modules: Literal['community', 'enterprise'] | list[str] = 'community',
+)
+```
+
+### `columnDefs` format
+
+Each entry in `columnDefs` is a dict:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `field` | `str` | Row data key |
+| `headerName` | `str` | Column header |
+| `sortable` | `bool` | Enable sorting |
+| `filter` | `bool` | Enable filter popup |
+| `checkboxSelection` | `bool` | Show row checkbox |
+| `flex` | `int` | Flex-grow factor |
+
+**Example**
+
+```python
+from nicegui import ui
+
+grid = ui.aggrid({
+    'columnDefs': [
+        {'field': 'name',     'headerName': 'Name',     'sortable': True, 'filter': True},
+        {'field': 'age',      'headerName': 'Age',      'sortable': True, 'filter': 'agNumberColumnFilter'},
+        {'field': 'country',  'headerName': 'Country',  'sortable': True},
+    ],
+    'rowData': [
+        {'name': 'Alice',   'age': 30, 'country': 'USA'},
+        {'name': 'Bob',     'age': 25, 'country': 'UK'},
+        {'name': 'Charlie', 'age': 35, 'country': 'Germany'},
+    ],
+    'rowSelection': 'multiple',
+    'defaultColDef': {'resizable': True},
+})
+
+ui.button('Get selected', on_click=lambda: ui.notify(grid.get_selected_rows()))
+
+ui.run()
+```
+
+### Creating from a Pandas DataFrame
+
+```python
+from nicegui import ui
+import pandas as pd
+
+df = pd.DataFrame({'product': ['Widget', 'Gadget'], 'price': [9.99, 24.99], 'stock': [100, 45]})
+ui.aggrid.from_pandas(df)
+
+ui.run()
+```
+
+---
+
+## `ui.tree`
+
+A hierarchical tree view backed by Quasar's `QTree`. Nodes are plain dicts; you can customize which keys hold the ID, label, and children.
+
+**Constructor**
+
+```python
+ui.tree(
+    nodes: list[dict],
+    *,
+    node_key: str = 'id',
+    label_key: str = 'label',
+    children_key: str = 'children',
+    on_select: Handler[ValueChangeEventArguments] | None = None,
+    on_expand: Handler[ValueChangeEventArguments] | None = None,
+    on_tick: Handler[ValueChangeEventArguments] | None = None,
+    tick_strategy: Literal['leaf', 'leaf-filtered', 'strict'] | None = None,
+)
+```
+
+### Node format
+
+```python
+nodes = [
+    {
+        'id': 'fruits',
+        'label': 'Fruits',
+        'children': [
+            {'id': 'apple',  'label': 'Apple'},
+            {'id': 'banana', 'label': 'Banana'},
+        ],
+    },
+    {
+        'id': 'veggies',
+        'label': 'Vegetables',
+        'children': [
+            {'id': 'carrot',  'label': 'Carrot'},
+            {'id': 'broccoli','label': 'Broccoli'},
+        ],
+    },
+]
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+nodes = [
+    {'id': 'src',  'label': 'src/', 'children': [
+        {'id': 'main', 'label': 'main.py'},
+        {'id': 'util', 'label': 'utils.py'},
+    ]},
+    {'id': 'tests', 'label': 'tests/', 'children': [
+        {'id': 'test_main', 'label': 'test_main.py'},
+    ]},
+    {'id': 'readme', 'label': 'README.md'},
+]
+
+tree = ui.tree(
+    nodes,
+    on_select=lambda e: ui.notify(f'Selected: {e.value}'),
+    tick_strategy='leaf',
+)
+
+# Programmatically expand all
+tree.expand()
+
+ui.run()
+```
+
+---
+
+## `ui.list` and `ui.item`
+
+A Quasar `QList` container with `QItem` children. Items can be clickable.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.list().props('bordered separator'):
+    ui.item_label('Notifications').props('header').classes('text-weight-bold')
+    ui.separator()
+    with ui.item(on_click=lambda: ui.notify('Email clicked')):
+        with ui.item_section().props('avatar'):
+            ui.icon('email')
+        with ui.item_section():
+            ui.item_label('Inbox')
+            ui.item_label('3 unread messages').props('caption')
+    with ui.item(on_click=lambda: ui.notify('Calendar clicked')):
+        with ui.item_section().props('avatar'):
+            ui.icon('event')
+        with ui.item_section():
+            ui.item_label('Calendar')
+            ui.item_label('Meeting at 3 PM').props('caption')
+
+ui.run()
+```
+
+---
+
+## `ui.pagination`
+
+Page-number controls backed by Quasar's `QPagination`.
+
+**Constructor**
+
+```python
+ui.pagination(
+    min: int,
+    max: int,
+    *,
+    direction_links: bool = False,
+    value: int | None = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+p = ui.pagination(1, 10, direction_links=True, value=1)
+ui.label().bind_text_from(p, 'value', backward=lambda v: f'Page {v} of 10')
+
+ui.run()
+```
+
+---
+
+## `ui.timeline`
+
+A vertical timeline backed by Quasar's `QTimeline` and `QTimelineEntry`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.timeline(side='right', layout='comfortable'):
+    ui.timeline_entry(
+        'Project started',
+        title='Kickoff',
+        subtitle='January 2024',
+        icon='rocket_launch',
+        color='primary',
+    )
+    ui.timeline_entry(
+        'MVP shipped to beta users',
+        title='Beta Release',
+        subtitle='March 2024',
+        icon='local_shipping',
+        color='green',
+    )
+    ui.timeline_entry(
+        'Public launch on Product Hunt',
+        title='Launch Day',
+        subtitle='May 2024',
+        icon='celebration',
+        color='orange',
+    )
+
+ui.run()
+```
+
+---
+
+## `ui.chat_message`
+
+Renders a chat bubble backed by Quasar's `QChatMessage`. Supports sent/received styling and avatars.
+
+**Constructor**
+
+```python
+ui.chat_message(
+    text: str | list[str] | None = None,
+    name: str | None = None,
+    label: str | None = None,
+    stamp: str | None = None,
+    avatar: str | None = None,
+    sent: bool = False,
+    text_html: bool = False,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.chat_message(
+    'Hello! How can I help you today?',
+    name='Support Bot',
+    stamp='10:32',
+    avatar='https://robohash.org/bot',
+)
+ui.chat_message(
+    'I need help with my order.',
+    name='Alice',
+    stamp='10:33',
+    sent=True,
+    avatar='https://robohash.org/alice',
+)
+
+ui.run()
+```
+
+---
+
+## `ui.log`
+
+A scrolling log view that streams new lines without re-sending the entire history.
+
+**Constructor**
+
+```python
+ui.log(max_lines: int | None = None)
+```
+
+Use `log.push(line)` to append content.
+
+**Example**
+
+```python
+from nicegui import ui
+import datetime
+
+log = ui.log(max_lines=50).classes('w-full h-48')
+
+def emit_log():
+    now = datetime.datetime.now().strftime('%H:%M:%S')
+    log.push(f'[{now}] Server tick')
+
+ui.timer(1.0, emit_log)
+ui.button('Clear', on_click=log.clear)
+
+ui.run()
+```
+
+---
+
+## `ui.json_editor`
+
+An interactive JSON editor backed by [JSONEditor](https://github.com/josdejong/jsoneditor).
+
+**Example**
+
+```python
+from nicegui import ui
+
+editor = ui.json_editor(
+    {'content': {'json': {'name': 'Alice', 'age': 30, 'roles': ['admin', 'user']}}},
+    on_change=lambda e: ui.notify('JSON changed'),
+)
+
+ui.run()
+```
+
+---
+
+## `ui.rating`
+
+A star (or custom icon) rating control backed by Quasar's `QRating`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+r = ui.rating(value=3, max=5, icon='star', color='amber')
+ui.label().bind_text_from(r, 'value', backward=lambda v: f'Rating: {v}/5')
+
+ui.run()
+```
+
+---
+
+## `ui.linear_progress`
+
+A horizontal progress bar backed by Quasar's `QLinearProgress`. Value ranges from `0.0` to `1.0`.
+
+**Constructor**
+
+```python
+ui.linear_progress(
+    value: float = 0.0,
+    *,
+    size: str | None = None,
+    show_value: bool = True,
+    color: str | None = 'primary',
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+bar = ui.linear_progress(value=0.4, color='green')
+ui.button('Increment', on_click=lambda: bar.set_value(min(1.0, bar.value + 0.1)))
+
+ui.run()
+```
+
+---
+
+## `ui.circular_progress`
+
+A circular progress indicator backed by Quasar's `QCircularProgress`.
+
+**Constructor**
+
+```python
+ui.circular_progress(
+    value: float = 0.0,
+    *,
+    min: float = 0.0,
+    max: float = 1.0,
+    size: str = 'xl',
+    show_value: bool = True,
+    color: str | None = 'primary',
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+progress = ui.circular_progress(value=0.0, min=0, max=100, size='80px')
+
+def advance():
+    progress.value = min(100, progress.value + 5)
+
+ui.timer(0.3, advance)
+
+ui.run()
+```
+
+---
+
+## `ui.spinner`
+
+An animated loading spinner backed by Quasar's spinner components. Many visual styles available.
+
+**Constructor**
+
+```python
+ui.spinner(
+    type: str | None = 'default',
+    *,
+    size: str = '1em',
+    color: str | None = 'primary',
+    thickness: float = 5.0,
+)
+```
+
+Available types include: `'default'`, `'audio'`, `'ball'`, `'bars'`, `'dots'`, `'grid'`, `'hourglass'`, `'ios'`, `'orbit'`, `'rings'`, `'tail'`, and more.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.row(align_items='center'):
+    ui.spinner('dots', size='2em', color='primary')
+    ui.label('Loading data…')
+
+with ui.row():
+    for style in ['default', 'audio', 'ball', 'bars', 'hourglass']:
+        with ui.column(align_items='center'):
+            ui.spinner(style, size='2em')
+            ui.label(style).classes('text-caption')
+
+ui.run()
+```
+
+---
+
+## Complete Data Dashboard Example
+
+```python
+from nicegui import ui
+
+# Summary cards
+with ui.grid(columns=3).classes('w-full gap-4'):
+    for label_text, value, color in [
+        ('Total Users', '4 821', 'primary'),
+        ('Active Now',  '142',   'positive'),
+        ('Error Rate',  '0.3%',  'negative'),
+    ]:
+        with ui.card():
+            ui.label(label_text).classes('text-caption text-grey')
+            ui.label(value).classes('text-h5')
+            ui.linear_progress(
+                value={'4 821': 0.48, '142': 0.14, '0.3%': 0.003}[value],
+                show_value=False,
+                color=color,
+            )
+
+# Live log
+ui.label('Server log').classes('text-subtitle1 mt-4')
+log = ui.log(max_lines=100).classes('w-full h-48')
+
+import datetime
+
+def tick():
+    log.push(f'[{datetime.datetime.now():%H:%M:%S}] Heartbeat OK')
+
+ui.timer(2.0, tick)
+
+ui.run()
+```

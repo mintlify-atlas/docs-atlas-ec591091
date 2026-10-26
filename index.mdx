@@ -1,20 +1,96 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "NiceGUI: Python UI Framework for the Web"
+sidebarTitle: "Home"
+description: "Build beautiful web-based user interfaces entirely in Python. NiceGUI runs in the browser with zero frontend code required."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+NiceGUI lets you build interactive, browser-based user interfaces using pure Python. Write UI logic once, and NiceGUI handles the web stack — a FastAPI/uvicorn backend communicates over WebSocket to a Vue 3/Quasar frontend, all without writing a single line of JavaScript or HTML.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first NiceGUI app in under five minutes with a working example.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install via pip, conda-forge, or Docker. Supports Python 3.10+.
+  </Card>
+  <Card title="UI Elements" icon="palette" href="/elements/text-content">
+    Explore 100+ built-in elements: buttons, inputs, charts, 3D scenes, maps, and more.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/ui-run">
+    Full reference for `ui.run()`, `@ui.page`, storage, bindings, and every element.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## Why NiceGUI?
+
+NiceGUI is designed for developers who want the power of a modern web UI without leaving Python. It's ideal for dashboards, robotics control panels, ML experiment tools, smart home interfaces, and rapid prototyping.
+
+<CardGroup cols={3}>
+  <Card title="Pure Python" icon="python">
+    No HTML, CSS, or JavaScript required. The entire UI is declared and controlled from Python.
+  </Card>
+  <Card title="Live Reload" icon="arrows-rotate">
+    Changes to your code are reflected in the browser instantly during development.
+  </Card>
+  <Card title="100+ Elements" icon="shapes">
+    From simple labels and buttons to ECharts, 3D scenes, Leaflet maps, and AG Grid tables.
+  </Card>
+  <Card title="Data Binding" icon="link">
+    Declarative two-way bindings sync Python objects to UI elements automatically.
+  </Card>
+  <Card title="Native Mode" icon="desktop">
+    Package your app as a native desktop window with pywebview — no browser required.
+  </Card>
+  <Card title="FastAPI Native" icon="bolt">
+    NiceGUI is a FastAPI app. Add REST endpoints, middleware, and mount sub-applications freely.
+  </Card>
+</CardGroup>
+
+## Get Started in 3 Steps
+
+<Steps>
+  <Step title="Install NiceGUI">
+    ```bash
+    pip install nicegui
+    ```
+  </Step>
+  <Step title="Write your app">
+    ```python main.py
+    from nicegui import ui
+
+    ui.label('Hello NiceGUI!')
+    ui.button('Click me', on_click=lambda: ui.notify('Hello!'))
+
+    ui.run()
+    ```
+  </Step>
+  <Step title="Run it">
+    ```bash
+    python main.py
+    ```
+    Open [http://localhost:8080](http://localhost:8080) in your browser. The app hot-reloads whenever you save changes.
+  </Step>
+</Steps>
+
+## Explore the Docs
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts">
+    Understand the element lifecycle, slot stack, binding system, and async model.
+  </Card>
+  <Card title="Pages & Routing" icon="map" href="/features/pages-routing">
+    Create multi-page apps with per-user page scopes and URL routing.
+  </Card>
+  <Card title="Data Binding" icon="arrows-left-right" href="/features/data-binding">
+    Bind UI elements to Python objects for automatic synchronization.
+  </Card>
+  <Card title="Storage" icon="database" href="/features/storage">
+    Per-user, per-tab, and shared persistent storage — no database required.
+  </Card>
+  <Card title="Testing" icon="flask" href="/advanced/testing">
+    Write automated UI tests with NiceGUI's built-in pytest plugin.
+  </Card>
+  <Card title="Deployment" icon="cloud" href="/deployment/configuration">
+    Configure and deploy NiceGUI apps with Docker or any cloud platform.
+  </Card>
+</CardGroup>

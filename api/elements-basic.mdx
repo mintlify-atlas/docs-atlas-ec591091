@@ -1,0 +1,567 @@
+---
+title: "NiceGUI Basic Elements API Reference"
+sidebarTitle: "Basic Elements"
+description: "API reference for NiceGUI display and output elements: label, markdown, html, code, icon, image, spinner, badge, chip, and notification helpers."
+---
+
+NiceGUI's basic elements are the building blocks for displaying content on the page. They cover plain text, rich markdown, raw HTML, syntax-highlighted code blocks, icons, images, status indicators, and transient notifications. Every element in NiceGUI inherits from the base `Element` class, so the styling and lifecycle methods documented at the bottom of this page apply universally.
+
+---
+
+## Base Element Methods
+
+All NiceGUI elements inherit the following methods and properties. These are defined on the `Element` base class in `nicegui/element.py`.
+
+<Accordion title="Element base class API">
+
+| Member | Description |
+|--------|-------------|
+| `.classes(add, remove, toggle, replace)` | Apply, remove, toggle, or replace Tailwind / Quasar CSS classes. |
+| `.style(add, remove, replace)` | Apply, remove, or replace inline CSS styles. |
+| `.props(add, remove)` | Set or remove Quasar / HTML element props (e.g. `'outlined dense'`). |
+| `.tooltip(text)` | Attach a hover tooltip to the element. |
+| `.move(target_container, target_index, target_slot)` | Reparent the element to a different container. |
+| `.delete()` | Remove the element and all its children from the page. |
+| `.clear()` | Remove all child elements, keeping the container. |
+| `.update()` | Push the current element state to the browser. |
+| `.visible` | Boolean property — hide/show the element without removing it. |
+| `.on(type, handler, args, throttle, ...)` | Subscribe to any DOM or custom event. |
+| `.run_method(name, *args, timeout)` | Call a Vue/JS method on the client-side component. |
+| `.ancestors(include_self)` | Iterate parent elements up the tree. |
+| `.descendants(include_self)` | Iterate all children recursively. |
+| `.mark(*markers)` | Tag the element for `ElementFilter` queries in tests. |
+| `.html_id` | The DOM `id` attribute (e.g. `c42`). |
+| `.is_deleted` | `True` after `.delete()` has been called. |
+
+</Accordion>
+
+---
+
+## `ui.label`
+
+```python
+ui.label(text: str = '')
+```
+
+Displays a plain-text string. Backed by a `<div>` element; use `.classes()` or `.style()` to format it.
+
+<ParamField path="text" type="str" default="">
+  The text content to display.
+</ParamField>
+
+**Key methods** (from `TextElement` mixin):
+
+| Method | Description |
+|--------|-------------|
+| `.set_text(text)` | Update the label text imperatively. |
+| `.bind_text(target_object, target_name, forward, backward)` | Two-way bind the text to a model attribute. |
+| `.bind_text_to(target_object, target_name, forward)` | One-way bind: element → model. |
+| `.bind_text_from(target_object, target_name, backward)` | One-way bind: model → element. |
+
+```python
+from nicegui import ui
+
+label = ui.label('Hello, World!')
+
+# Update dynamically
+label.set_text('Hello, NiceGUI!')
+
+# Bind to a data object
+class State:
+    message = 'Dynamic text'
+
+state = State()
+ui.label().bind_text(state, 'message')
+```
+
+<Note>
+`ui.label` renders as a `<div>`. For inline content within a paragraph, use `ui.html` with an inline tag such as `<span>`.
+</Note>
+
+---
+
+## `ui.markdown`
+
+```python
+ui.markdown(
+    content: str = '',
+    *,
+    extras: list[str] | None = None,
+    sanitize: Callable[[str], str] | bool = True,
+)
+```
+
+Renders Markdown to HTML using the `markdown2` library with syntax highlighting via Pygments.
+
+<ParamField path="content" type="str" default="">
+  The Markdown string to render.
+</ParamField>
+
+<ParamField path="extras" type="list[str] | None" default="['fenced-code-blocks', 'tables']">
+  List of [markdown2 extensions](https://github.com/trentm/python-markdown2/wiki/Extras#implemented-extras). Defaults to `ui.markdown.default_extras` which is `['fenced-code-blocks', 'tables']`.
+</ParamField>
+
+<ParamField path="sanitize" type="Callable | bool" default="True">
+  `True` — client-side DOMPurify sanitization (default). `False` — no sanitization (trusted content only). Pass a callable for server-side sanitization.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.markdown('# Hello\n\n**Bold** and _italic_ text with a [link](https://nicegui.io).')
+
+# Mermaid diagrams
+ui.markdown('```mermaid\ngraph LR\n  A --> B\n```', extras=['fenced-code-blocks', 'tables', 'mermaid'])
+```
+
+<Warning>
+Setting `sanitize=False` renders raw HTML from the Markdown. Only use this for content you fully control.
+</Warning>
+
+**Class-level default** — change the default extras for all future `ui.markdown` instances:
+
+```python
+ui.markdown.default_extras = ['fenced-code-blocks', 'tables', 'mermaid', 'footnotes']
+```
+
+---
+
+## `ui.html`
+
+```python
+ui.html(
+    content: str = '',
+    *,
+    sanitize: Callable[[str], str] | bool = True,
+    tag: str = 'div',
+)
+```
+
+Injects arbitrary HTML into the page, wrapped in the specified tag. Tailwind utility classes work inside the injected HTML.
+
+<ParamField path="content" type="str" default="">
+  Raw HTML string to inject.
+</ParamField>
+
+<ParamField path="sanitize" type="Callable | bool" default="True">
+  Same sanitization behaviour as `ui.markdown`.
+</ParamField>
+
+<ParamField path="tag" type="str" default="'div'">
+  Wrapping HTML tag. Use `'span'` for inline content.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.html('<strong>Bold</strong> via raw HTML.', tag='p')
+ui.html('<em>Italic</em> inline.', tag='span')
+```
+
+<Tip>
+Use `ui.add_head_html(...)` and `ui.add_body_html(...)` to inject global `<head>` or `<body>` HTML across the whole page.
+</Tip>
+
+---
+
+## `ui.code`
+
+```python
+ui.code(
+    content: str = '',
+    *,
+    language: str | None = 'python',
+)
+```
+
+Displays a syntax-highlighted code block. In secure contexts (HTTPS or localhost) a copy-to-clipboard button is shown.
+
+<ParamField path="content" type="str" default="">
+  The source code string to display. Leading indentation is automatically removed.
+</ParamField>
+
+<ParamField path="language" type="str | None" default="'python'">
+  Syntax highlighting language (e.g. `'python'`, `'javascript'`, `'bash'`). Pass `None` for plain text.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.code('''
+    def greet(name: str) -> str:
+        return f"Hello, {name}!"
+''', language='python')
+```
+
+---
+
+## `ui.icon`
+
+```python
+ui.icon(
+    name: str,
+    *,
+    size: str | None = None,
+    color: str | None = None,
+)
+```
+
+Renders a Material Icon using Quasar's `QIcon` component.
+
+<ParamField path="name" type="str" required>
+  Icon name in snake_case (e.g. `'add_circle'`, `'home'`). Browse all icons at [fonts.google.com/icons](https://fonts.google.com/icons?icon.set=Material+Icons).
+</ParamField>
+
+<ParamField path="size" type="str | None" default="None">
+  CSS size value or Quasar size name (`xs`, `sm`, `md`, `lg`, `xl`). Examples: `'16px'`, `'2rem'`, `'lg'`.
+</ParamField>
+
+<ParamField path="color" type="str | None" default="None">
+  Icon color — accepts Quasar, Tailwind, or CSS color names.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.icon('thumb_up', size='2rem', color='positive')
+ui.icon('warning', color='orange')
+```
+
+---
+
+## `ui.image`
+
+```python
+ui.image(source: str | Path | PIL_Image = '')
+```
+
+Displays a static image. The source can be a URL, local file path, base64 data URI, or PIL `Image` object (if Pillow is installed).
+
+<ParamField path="source" type="str | Path | PIL_Image" default="">
+  Image source — URL, local path, base64 string, or PIL Image.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.image('https://picsum.photos/640/360')
+ui.image('/path/to/local/image.png')
+```
+
+<Tip>
+For live-updating or clickable images, use `ui.interactive_image` instead.
+</Tip>
+
+---
+
+## `ui.spinner`
+
+```python
+ui.spinner(
+    type: str = 'default',
+    *,
+    size: str = '1em',
+    color: str = 'primary',
+    thickness: float = 5.0,
+)
+```
+
+Shows an animated loading spinner based on Quasar's `QSpinner` variants.
+
+<ParamField path="type" type="str" default="'default'">
+  Spinner variant: `'default'`, `'audio'`, `'ball'`, `'bars'`, `'box'`, `'clock'`, `'comment'`, `'cube'`, `'dots'`, `'facebook'`, `'gears'`, `'grid'`, `'hearts'`, `'hourglass'`, `'infinity'`, `'ios'`, `'orbit'`, `'oval'`, `'pie'`, `'puff'`, `'radio'`, `'rings'`, `'tail'`.
+</ParamField>
+
+<ParamField path="size" type="str" default="'1em'">
+  CSS size value (e.g. `'3em'`, `'64px'`).
+</ParamField>
+
+<ParamField path="color" type="str" default="'primary'">
+  Quasar, Tailwind, or CSS color.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.row():
+    ui.spinner('default', size='2em', color='primary')
+    ui.spinner('dots', size='2em', color='secondary')
+    ui.spinner('ios', size='2em', color='accent')
+```
+
+---
+
+## `ui.badge`
+
+```python
+ui.badge(
+    text: str = '',
+    *,
+    color: str = 'primary',
+    text_color: str | None = None,
+    outline: bool = False,
+    rounded: bool = False,
+    floating: bool = False,
+    transparent: bool = False,
+    align: str | None = None,
+    multi_line: bool = False,
+    label: str | None = None,
+)
+```
+
+Renders a Quasar `QBadge` — a small colored label typically used on top of another element.
+
+<ParamField path="text" type="str" default="">
+  Badge label text.
+</ParamField>
+
+<ParamField path="color" type="str" default="'primary'">
+  Background color.
+</ParamField>
+
+<ParamField path="outline" type="bool" default="False">
+  Render as outline-only badge.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.button('Inbox'):
+    ui.badge('3', color='red', floating=True)
+```
+
+---
+
+## `ui.chip`
+
+```python
+ui.chip(
+    text: str = '',
+    *,
+    icon: str | None = None,
+    color: str = 'primary',
+    text_color: str | None = None,
+    on_click: Handler | None = None,
+    selectable: bool = False,
+    selected: bool | None = None,
+    removable: bool = False,
+    on_value_change: Handler | None = None,
+    disable: bool = False,
+    outline: bool = False,
+    square: bool = False,
+    size: str | None = None,
+    draggable: bool = False,
+)
+```
+
+A compact, optionally interactive tag element based on Quasar's `QChip`.
+
+<ParamField path="text" type="str" default="">
+  Chip label.
+</ParamField>
+
+<ParamField path="icon" type="str | None" default="None">
+  Optional leading icon name.
+</ParamField>
+
+<ParamField path="color" type="str" default="'primary'">
+  Chip background color.
+</ParamField>
+
+<ParamField path="selectable" type="bool" default="False">
+  Allow toggling selected state.
+</ParamField>
+
+<ParamField path="removable" type="bool" default="False">
+  Show an `×` button to remove the chip.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.chip('Python', icon='code', color='blue-4')
+ui.chip('Removable', removable=True, on_value_change=lambda e: ui.notify(f'Removed: {e.value}'))
+```
+
+---
+
+## `ui.separator`
+
+```python
+ui.separator()
+```
+
+Renders a thin horizontal divider (`<hr>`-equivalent). Accepts `.style()` and `.classes()` for customization.
+
+```python
+from nicegui import ui
+
+ui.label('Section A')
+ui.separator()
+ui.label('Section B')
+```
+
+---
+
+## `ui.space`
+
+```python
+ui.space()
+```
+
+A flex spacer that pushes adjacent elements apart in a row or column.
+
+```python
+from nicegui import ui
+
+with ui.row():
+    ui.label('Left')
+    ui.space()
+    ui.label('Right')
+```
+
+---
+
+## `ui.skeleton`
+
+```python
+ui.skeleton(
+    type: str = 'rect',
+    *,
+    animation: str = 'wave',
+    square: bool = False,
+    bordered: bool = False,
+    size: str | None = None,
+    width: str | None = None,
+    height: str | None = None,
+    tag: str = 'div',
+)
+```
+
+Displays a Quasar `QSkeleton` placeholder while content loads.
+
+<ParamField path="type" type="str" default="'rect'">
+  Shape variant: `'rect'`, `'text'`, `'circle'`, `'QBtn'`, `'QBadge'`, `'QChip'`, `'QToolbar'`, `'QCheckbox'`, `'QRadio'`, `'QToggle'`, `'QSlider'`, `'QRange'`, `'QInput'`, `'QAvatar'`.
+</ParamField>
+
+<ParamField path="animation" type="str" default="'wave'">
+  Animation style: `'wave'`, `'pulse'`, `'pulse-x'`, `'pulse-y'`, `'fade'`, `'blink'`, `'none'`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.card():
+    ui.skeleton(type='text', width='80%')
+    ui.skeleton(type='text', width='60%')
+    ui.skeleton(type='rect', height='200px')
+```
+
+---
+
+## `ui.notify`
+
+```python
+ui.notify(
+    message: Any,
+    *,
+    position: str = 'bottom',
+    close_button: bool | str = False,
+    type: str | None = None,
+    color: str | None = None,
+    multi_line: bool = False,
+    **kwargs,
+) -> None
+```
+
+Displays a transient notification (toast) message. This is a **function**, not an element — it sends a fire-and-forget message to the browser.
+
+<ParamField path="message" type="Any" required>
+  The notification body text.
+</ParamField>
+
+<ParamField path="position" type="str" default="'bottom'">
+  Screen position: `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'`, `'top'`, `'bottom'`, `'left'`, `'right'`, `'center'`.
+</ParamField>
+
+<ParamField path="close_button" type="bool | str" default="False">
+  Add a dismiss button. Pass `True` for a default × or a string for a custom label.
+</ParamField>
+
+<ParamField path="type" type="str | None" default="None">
+  Semantic type: `'positive'`, `'negative'`, `'warning'`, `'info'`, `'ongoing'`.
+</ParamField>
+
+<ParamField path="color" type="str | None" default="None">
+  Override background color.
+</ParamField>
+
+<ParamField path="multi_line" type="bool" default="False">
+  Allow the message to wrap across multiple lines.
+</ParamField>
+
+```python
+from nicegui import ui
+
+ui.button('Say hi', on_click=lambda: ui.notify('Hello!'))
+ui.button('Error', on_click=lambda: ui.notify('Something failed', type='negative', position='top'))
+```
+
+<Note>
+Extra `**kwargs` are forwarded to [Quasar's Notify API](https://quasar.dev/quasar-plugins/notify#notify-api). For a persistent, updateable notification use `ui.notification` (the element variant).
+</Note>
+
+---
+
+## `ui.notification`
+
+```python
+ui.notification(
+    message: Any = '',
+    *,
+    position: str = 'bottom',
+    close_button: bool | str = False,
+    type: str | None = None,
+    color: str | None = None,
+    multi_line: bool = False,
+    icon: str | None = None,
+    spinner: bool = False,
+    timeout: float | None = 5.0,
+    on_dismiss: Handler | None = None,
+    options: dict | None = None,
+    **kwargs,
+)
+```
+
+An updateable notification element. Unlike `ui.notify`, the returned object can have its properties changed after creation.
+
+<ParamField path="message" type="Any" default="">
+  Initial notification text.
+</ParamField>
+
+<ParamField path="spinner" type="bool" default="False">
+  Show a spinner inside the notification.
+</ParamField>
+
+<ParamField path="timeout" type="float | None" default="5.0">
+  Auto-dismiss timeout in seconds. `None` keeps it open indefinitely.
+</ParamField>
+
+<ParamField path="on_dismiss" type="Handler | None" default="None">
+  Callback invoked when the notification is dismissed.
+</ParamField>
+
+```python
+from nicegui import ui
+import asyncio
+
+async def long_task():
+    n = ui.notification('Processing…', spinner=True, timeout=None)
+    await asyncio.sleep(3)
+    n.message = 'Done!'
+    n.spinner = False
+    await asyncio.sleep(1)
+    n.dismiss()
+
+ui.button('Start', on_click=long_task)
+```

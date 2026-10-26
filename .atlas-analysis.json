@@ -1,0 +1,132 @@
+{
+  "projectType": "framework",
+  "projectName": "NiceGUI",
+  "projectDescription": "A Python-based UI framework for building web-based graphical user interfaces with minimal code, running in a browser or as a native desktop window.",
+  "theme": "palm",
+  "primaryColor": "#5898d4",
+  "lightColor": "#abccec",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation",
+              "concepts"
+            ]
+          },
+          {
+            "group": "UI Elements",
+            "pages": [
+              "elements/text-content",
+              "elements/inputs-controls",
+              "elements/layout",
+              "elements/data-display",
+              "elements/media",
+              "elements/charts-visualization"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/pages-routing",
+              "features/data-binding",
+              "features/events",
+              "features/storage",
+              "features/timers-background-tasks"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "advanced/styling-theming",
+              "advanced/custom-components",
+              "advanced/fastapi-integration",
+              "advanced/native-mode",
+              "advanced/testing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/configuration",
+              "deployment/docker",
+              "deployment/cloud"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core API",
+            "pages": [
+              "api/ui-run",
+              "api/page",
+              "api/app",
+              "api/context"
+            ]
+          },
+          {
+            "group": "Element Reference",
+            "pages": [
+              "api/elements-basic",
+              "api/elements-input",
+              "api/elements-layout",
+              "api/elements-advanced"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/binding-api",
+              "api/storage-api",
+              "api/run-helpers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Python-only UI development with automatic browser rendering via WebSocket",
+    "100+ built-in UI elements: buttons, inputs, charts, 3D scenes, maps, tables, and more",
+    "Declarative data binding between Python objects and UI elements",
+    "Per-user and shared storage (client, tab, user, browser, general scopes)",
+    "Automatic hot-reload on code changes during development",
+    "Native desktop window mode via pywebview",
+    "FastAPI integration for custom routes and REST APIs",
+    "Built-in pytest-based testing framework for UI automation",
+    "Runs in Jupyter Notebooks and Python interactive mode",
+    "Docker-ready with official Docker image"
+  ],
+  "publicApiSurface": [
+    "ui.run() — start the NiceGUI server",
+    "ui.page(path) — decorator to define a per-user page route",
+    "ui.label(), ui.button(), ui.input(), ui.checkbox(), ui.switch(), ui.slider()",
+    "ui.row(), ui.column(), ui.card(), ui.dialog(), ui.drawer()",
+    "ui.table(), ui.aggrid() — tabular data display",
+    "ui.echart(), ui.plotly(), ui.matplotlib() — charts and plots",
+    "ui.scene() — 3D rendering",
+    "ui.leaflet() — interactive maps",
+    "ui.image(), ui.video(), ui.audio() — media elements",
+    "ui.markdown(), ui.html(), ui.code() — text/markup content",
+    "ui.notify() — toast notifications",
+    "ui.timer() — periodic callback execution",
+    "ui.refreshable — decorator for reactive UI sections",
+    "ui.run_javascript() — execute JavaScript in the browser",
+    "app.storage.user, app.storage.general, app.storage.client — per-scope storage",
+    "app.on_startup(), app.on_shutdown(), app.on_connect(), app.on_disconnect()",
+    "run.io_bound(), run.cpu_bound() — async task runners",
+    "background_tasks.create() — fire-and-forget async tasks",
+    "APIRouter — add custom FastAPI routes within NiceGUI",
+    "ElementFilter — query and filter elements on the current page",
+    "binding.bind_from(), binding.bind_to(), binding.bind() — manual binding helpers"
+  ]
+}

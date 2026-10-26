@@ -1,0 +1,339 @@
+---
+title: "Testing NiceGUI Applications with pytest"
+sidebarTitle: "Testing"
+description: "Write fast user-simulation tests and full browser Selenium tests for NiceGUI apps using the built-in pytest plugin with User and Screen fixtures."
+---
+
+NiceGUI ships a first-class pytest plugin that makes testing UI code straightforward. It provides two complementary test modes — a **User simulation** mode that is fast, dependency-free, and runs in-process, and a **Screen** mode that drives a real Chromium browser via Selenium for end-to-end confidence. Both modes are available through the same plugin and can coexist in the same test suite.
+
+## Installation
+
+The testing extras pull in `httpx` and `pytest-asyncio` (and optionally Selenium for screen tests):
+
+```bash
+pip install "nicegui[testing]"
+
+# For Screen (browser) tests, also install:
+pip install selenium
+```
+
+Enable the plugin in your `pytest.ini` or `pyproject.toml`:
+
+```ini
+# pytest.ini
+[pytest]
+asyncio_mode = auto
+```
+
+The NiceGUI plugin is registered automatically once `nicegui[testing]` is installed — no `conftest.py` entry is needed.
+
+---
+
+## Two Test Modes
+
+<CardGroup cols={2}>
+  <Card title="User simulation" icon="user">
+    Simulates a user interacting with your app entirely in Python. No browser, no network — fast and great for CI. Provided by the `user` fixture.
+  </Card>
+  <Card title="Screen (Selenium)" icon="browser">
+    Launches a real Chromium browser via Selenium WebDriver. Tests actual rendering, CSS, and JavaScript. Provided by the `screen` fixture.
+  </Card>
+</CardGroup>
+
+---
+
+## The `user` Fixture
+
+The `user` fixture is an instance of `nicegui.testing.User`. Each test that receives `user` gets an isolated NiceGUI client and a fresh browser session backed by an `httpx.AsyncClient` — no real HTTP server is involved.
+
+### Opening a page
+
+```python
+from nicegui.testing import User
+
+async def test_home_page(user: User) -> None:
+    await user.open('/')
+    await user.should_see('Welcome')
+```
+
+### Assertions — `should_see` and `should_not_see`
+
+Both methods accept a plain string (matched against element text content **or** marker), an element type, or keyword arguments (`kind`, `marker`, `content`):
+
+```python
+from nicegui import ui
+from nicegui.testing import User
+
+async def test_counter(user: User) -> None:
+    await user.open('/')
+
+    # Assert by text content
+    await user.should_see('Count: 0')
+
+    # Assert by element type
+    await user.should_see(ui.button)
+
+    # Assert by marker (set with element.mark('my-marker'))
+    await user.should_see(marker='submit-btn')
+
+    # Negative assertion
+    await user.should_not_see('Error')
+```
+
+<Note>
+  `should_see` retries up to 3 times with a 100 ms delay between attempts by default. Increase retries for slow async operations: `await user.should_see('Done', retries=10)`.
+</Note>
+
+### Finding and interacting with elements
+
+`user.find()` selects elements matching text, type, or marker and returns a `UserInteraction` object:
+
+```python
+from nicegui.testing import User
+
+async def test_button_click(user: User) -> None:
+    await user.open('/')
+    user.find('Click me').click()
+    await user.should_see('Button clicked!')
+```
+
+### Typing into inputs
+
+```python
+from nicegui.testing import User
+
+async def test_input(user: User) -> None:
+    await user.open('/form')
+    user.find('Name').type('Alice')
+    user.find('Submit').click()
+    await user.should_see('Hello, Alice!')
+```
+
+### Scoped assertions with `user.scope()`
+
+When the same text appears in multiple places on a page, use `user.scope()` to narrow the search to the descendants of a single element:
+
+```python
+from nicegui.testing import User
+
+async def test_scoped(user: User) -> None:
+    await user.open('/')
+
+    with user.scope(marker='left-panel'):
+        await user.should_see('Edit')
+        await user.should_not_see('Delete')
+
+    with user.scope(marker='right-panel'):
+        await user.should_see('Delete')
+```
+
+---
+
+## Complete `user` Test Example
+
+The following suite is adapted from the NiceGUI `examples/pytests` directory:
+
+```python
+# tests/test_with_user.py
+from nicegui.testing import User
+
+
+async def test_markdown_message(user: User) -> None:
+    await user.open('/')
+    await user.should_see('Try running')
+
+
+async def test_button_click(user: User) -> None:
+    await user.open('/')
+    user.find('Click me').click()
+    await user.should_see('Button clicked!')
+
+
+async def test_sub_page(user: User) -> None:
+    await user.open('/subpage')
+    await user.should_see('This is a subpage')
+
+
+async def test_with_connected(user: User) -> None:
+    await user.open('/with_connected')
+    await user.should_see('This is an async connection demo')
+    await user.should_see('Connected!')
+
+
+async def test_navigation(user: User) -> None:
+    await user.open('/')
+    user.find('go to subpage').click()
+    await user.should_see('This is a subpage')
+```
+
+The corresponding app being tested:
+
+```python
+# app/startup.py
+from nicegui import Client, ui
+
+
+def startup() -> None:
+    @ui.page('/')
+    def main_page() -> None:
+        ui.markdown('Try running `pytest` on this project!')
+        ui.button('Click me', on_click=lambda: ui.notify('Button clicked!'))
+        ui.link('go to subpage', '/subpage')
+
+    @ui.page('/subpage')
+    def sub_page() -> None:
+        ui.markdown('This is a subpage')
+
+    @ui.page('/with_connected')
+    async def with_connected(client: Client) -> None:
+        ui.markdown('This is an async connection demo')
+        await client.connected()
+        ui.markdown('Connected!')
+```
+
+---
+
+## The `screen` Fixture (Selenium)
+
+The `screen` fixture drives a real Chrome/Chromium browser, giving you full rendering fidelity. It is synchronous (regular `def` tests):
+
+```python
+# tests/test_with_screen.py
+from nicegui.testing import Screen
+
+
+def test_markdown_message(screen: Screen) -> None:
+    screen.open('/')
+    screen.should_contain('Try running')
+
+
+def test_button_click(screen: Screen) -> None:
+    screen.open('/')
+    screen.click('Click me')
+    screen.should_contain('Button clicked!')
+
+
+def test_sub_page(screen: Screen) -> None:
+    screen.open('/subpage')
+    screen.should_contain('This is a subpage')
+
+
+def test_navigation(screen: Screen) -> None:
+    screen.open('/')
+    screen.click('go to subpage')
+    screen.should_contain('This is a subpage')
+```
+
+### `Screen` API highlights
+
+| Method | Description |
+|---|---|
+| `screen.open(path)` | Navigate to the given path; starts the server if needed |
+| `screen.should_contain(text)` | Assert the page contains the visible text |
+| `screen.should_not_contain(text)` | Assert the page does not contain the text |
+| `screen.click(text)` | Find and click the element with the given text |
+| `screen.type(text)` | Type into the currently focused element |
+| `screen.find(text)` | Return the `WebElement` containing the text |
+| `screen.find_by_css(selector)` | Return a `WebElement` by CSS selector |
+| `screen.wait_for(text)` | Wait until the text appears (up to `IMPLICIT_WAIT` seconds) |
+| `screen.shot(name)` | Save a PNG screenshot to `screenshots/` |
+| `screen.current_path` | The current browser URL path |
+
+<Tip>
+  Screenshots are automatically saved when a `screen` test fails — look in the `screenshots/` directory next to your `pytest.ini` file.
+</Tip>
+
+---
+
+## Test Isolation
+
+NiceGUI resets its global state between every test through the `nicegui_reset_globals` fixture that the plugin registers automatically. This means:
+
+- All registered page routes are cleared.
+- `app.storage` is cleared.
+- Element default classes/styles/props are restored to their pre-test values.
+- `Client.instances` is cleared so stale clients do not leak between tests.
+
+You do not need to do anything manually — isolation is automatic. However, if you register pages in a module-level `startup()` function (as shown in the examples directory), wrap it in `app.on_startup()` so it re-runs after each reset:
+
+```python
+# main.py
+from app.startup import startup
+from nicegui import app, ui
+
+app.on_startup(startup)
+ui.run()
+```
+
+---
+
+## Registering Pages for Testing
+
+If your app uses `app.on_startup()` to register pages, point the plugin at your main file with the `--main` pytest CLI option:
+
+```bash
+pytest --main=main.py
+```
+
+Alternatively, define pages directly inside your test functions for fully self-contained tests:
+
+```python
+from nicegui import ui
+from nicegui.testing import User
+
+async def test_inline_page(user: User) -> None:
+    @ui.page('/hello')
+    def hello():
+        ui.label('Hello from inline test!')
+
+    await user.open('/hello')
+    await user.should_see('Hello from inline test!')
+```
+
+---
+
+## `UserInteraction` Reference
+
+`user.find(target)` returns a `UserInteraction[T]` with these methods:
+
+| Method | Description |
+|---|---|
+| `.click()` | Click the found element (handles checkboxes, selects, links, tabs, etc.) |
+| `.type(text)` | Append text to the element's value (supports `ui.input`, `ui.number`, `ui.editor`) |
+| `.clear()` | Set the element's value to `None` |
+| `.trigger(event, args)` | Fire an arbitrary event type on the element |
+
+```python
+async def test_form(user: User) -> None:
+    await user.open('/form')
+
+    user.find('Email').type('alice@example.com')
+    user.find('Password').type('s3cr3t')
+    user.find('Remember me').click()   # toggles a checkbox
+    user.find('Sign in').click()
+
+    await user.should_see('Welcome, alice@example.com')
+    await user.should_not_see('Invalid credentials')
+```
+
+---
+
+## Summary
+
+<Steps>
+  <Step title="Install">
+    Run `pip install 'nicegui[testing]'` and add `asyncio_mode = auto` to `pytest.ini`.
+  </Step>
+  <Step title="Write User tests">
+    Use the `user` fixture for fast, in-process tests: `await user.open('/')`, `user.find(...).click()`, `await user.should_see(...)`.
+  </Step>
+  <Step title="Write Screen tests">
+    Use the `screen` fixture for full browser tests: `screen.open('/')`, `screen.click(...)`, `screen.should_contain(...)`.
+  </Step>
+  <Step title="Trust isolation">
+    NiceGUI resets global state automatically between tests — no teardown boilerplate needed.
+  </Step>
+  <Step title="Use startup pattern">
+    Register pages in `app.on_startup()` and point pytest at your `main.py` with `--main=main.py` for realistic integration tests.
+  </Step>
+</Steps>

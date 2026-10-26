@@ -1,0 +1,292 @@
+---
+title: "@ui.page — Per-User Page Decorator"
+sidebarTitle: "@ui.page"
+description: "API reference for the @ui.page decorator, ui.navigate namespace, and PageArguments for query string access in NiceGUI applications."
+---
+
+`@ui.page` is a class-based decorator that registers a Python function as a NiceGUI page at a given URL path. Every user who navigates to the route gets a **completely independent instance** of the page — elements are not shared between visitors. This is the primary way to build multi-page NiceGUI applications.
+
+```python
+from nicegui import ui
+
+@ui.page('/dashboard')
+def dashboard():
+    ui.label('Welcome to your private dashboard')
+
+ui.run()
+```
+
+<Note>
+The decorated function name is not used by NiceGUI and can be anything. What matters is the `path` argument and the function body.
+</Note>
+
+## `page` class
+
+```python
+class page:
+    def __init__(
+        self,
+        path: str,
+        *,
+        title: str | None = None,
+        viewport: str | None = None,
+        favicon: str | Path | None = None,
+        dark: bool | None = ...,
+        language: Language | None = ...,
+        response_timeout: float = 3.0,
+        reconnect_timeout: float | None = None,
+        markdown: bool | None = None,
+        api_router: APIRouter | None = None,
+        **kwargs: Any,
+    ) -> None
+```
+
+### Parameters
+
+<ParamField path="path" type="str">
+  URL route for this page. Must start with `/`. Path parameters are supported using FastAPI syntax, e.g. `'/users/{user_id}'`. The decorated function may declare matching parameter names to receive them as arguments.
+</ParamField>
+
+<ParamField path="title" type="str | None" default="None">
+  Browser tab title for this page. Overrides the global `title` set in `ui.run()`. When `None`, the global default is used.
+</ParamField>
+
+<ParamField path="viewport" type="str | None" default="None">
+  Content of the HTML `<meta name="viewport">` tag for this page. Overrides the global `viewport` from `ui.run()`.
+</ParamField>
+
+<ParamField path="favicon" type="str | Path | None" default="None">
+  Page-specific favicon. Accepts a local file path, an `http(s)://` URL, a data URL, an inline SVG, or an emoji. Falls back to the `favicon` set in `ui.run()`.
+</ParamField>
+
+<ParamField path="dark" type="bool | None" default="...">
+  Dark mode for this page. `True` = dark, `False` = light, `None` = follow OS preference. The sentinel `...` (Ellipsis, the actual default) means "inherit from `ui.run()`".
+</ParamField>
+
+<ParamField path="language" type="Language | None" default="...">
+  Language code applied to Quasar components and the `<html lang>` attribute for this page. The sentinel `...` means "inherit from `ui.run()`". Pass `None` explicitly to omit the `lang` attribute on this page.
+</ParamField>
+
+<ParamField path="response_timeout" type="float" default="3.0">
+  Maximum seconds the page builder function has to produce its initial HTML response. If the function is still running after this timeout, NiceGUI serves the elements created so far with a warning. Increase this for pages that perform database queries or other async I/O before rendering. To wait safely for slow operations, call `await ui.context.client.connected()` and then increase this value.
+</ParamField>
+
+<ParamField path="reconnect_timeout" type="float | None" default="None">
+  Maximum seconds to wait for the browser to reconnect before deleting the client. When `None`, the global `reconnect_timeout` from `ui.run()` is used.
+</ParamField>
+
+<ParamField path="markdown" type="bool | None" default="None">
+  When a request carries `Accept: text/markdown`, serve a Markdown rendering of the page. When `None`, inherits from the global `markdown` setting in `ui.run()`.
+</ParamField>
+
+<ParamField path="api_router" type="APIRouter | None" default="None">
+  Attach this page to a custom NiceGUI `APIRouter` rather than the root application router. Useful for modular apps where you group pages by feature. When `None`, the default application router is used.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments forwarded to FastAPI's `@app.get()` decorator (e.g. `include_in_schema`, `dependencies`, `tags`).
+</ParamField>
+
+---
+
+## Usage patterns
+
+### Basic page
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.label('Home page')
+
+@ui.page('/about')
+def about():
+    ui.label('About page')
+
+ui.run()
+```
+
+### Path parameters
+
+```python
+@ui.page('/users/{user_id}')
+def user_profile(user_id: int):
+    ui.label(f'Profile of user #{user_id}')
+```
+
+### Async page builder
+
+```python
+import asyncio
+from nicegui import ui
+
+@ui.page('/slow')
+async def slow_page():
+    await ui.context.client.connected()  # wait for WebSocket before long work
+    await asyncio.sleep(2)               # simulate async I/O
+    ui.label('Done loading')
+```
+
+### Accessing the Client object
+
+```python
+from nicegui import Client, ui
+
+@ui.page('/info')
+def info(client: Client):
+    ui.label(f'Your IP: {client.ip}')
+```
+
+<Tip>
+Declare a `client: Client` parameter in your page function and NiceGUI automatically injects the current `Client` instance.
+</Tip>
+
+### Modular pages with APIRouter
+
+```python
+from nicegui import APIRouter, ui
+
+router = APIRouter(prefix='/admin')
+
+@ui.page('/dashboard', api_router=router)
+def admin_dashboard():
+    ui.label('Admin Dashboard')  # accessible at /admin/dashboard
+```
+
+---
+
+## `ui.navigate`
+
+The `ui.navigate` namespace provides browser-navigation helpers. All functions execute JavaScript in the connected browser tab.
+
+### `ui.navigate.to()`
+
+```python
+def to(target: Callable[..., Any] | str | Element, new_tab: bool = False) -> None
+```
+
+Navigate the browser to a different page or URL.
+
+<ParamField path="target" type="Callable | str | Element">
+  The destination. Can be:
+  - A **string** — absolute URL (`'https://example.com'`) or a relative path (`'/dashboard'`).
+  - A **page function** decorated with `@ui.page` — NiceGUI resolves the registered route automatically.
+  - A **NiceGUI element** on the same page — navigates to the element's anchor (`#id`).
+</ParamField>
+
+<ParamField path="new_tab" type="bool" default="False">
+  Open the target in a new browser tab. Note: browsers may block this if not triggered by a direct user action. Consider using `ui.link` with `new_tab=True` as an alternative.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Go to about', on_click=lambda: ui.navigate.to('/about'))
+    ui.button('Open docs', on_click=lambda: ui.navigate.to('https://nicegui.io', new_tab=True))
+
+@ui.page('/about')
+def about():
+    ui.button('Back', on_click=ui.navigate.back)
+```
+
+### `ui.navigate.back()`
+
+```python
+def back() -> None
+```
+
+Navigate back one step in the browser's history. Equivalent to clicking the browser's Back button.
+
+### `ui.navigate.forward()`
+
+```python
+def forward() -> None
+```
+
+Navigate forward one step in the browser's history. Equivalent to clicking the browser's Forward button.
+
+### `ui.navigate.reload()`
+
+```python
+def reload() -> None
+```
+
+Reload the current page. Equivalent to pressing F5 or clicking the browser's Reload button.
+
+### `ui.navigate.history.push()`
+
+```python
+def push(url: str) -> None
+```
+
+Push a URL onto the browser's history stack without triggering a page load. Wraps the browser's `history.pushState()` API.
+
+### `ui.navigate.history.replace()`
+
+```python
+def replace(url: str) -> None
+```
+
+Replace the current history entry with a new URL without a page load. Wraps the browser's `history.replaceState()` API.
+
+---
+
+## `PageArguments`
+
+`PageArguments` provides unified access to path parameters, query parameters, and extra data passed to sub-page builders inside `ui.sub_pages`. Annotating a parameter with `PageArguments` causes NiceGUI to inject it automatically.
+
+```python
+from nicegui import PageArguments, ui
+
+@ui.page('/search')
+def search_page():
+    def show_results(args: PageArguments):
+        query = args.query_parameters.get('q', '')
+        ui.label(f'Results for: {query}')
+
+    ui.sub_pages({'/results': show_results})
+```
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `path` | `str` | The matched sub-path, e.g. `'/user/42'`. |
+| `frame` | `SubPages` | Reference to the `ui.sub_pages` element executing this builder. |
+| `path_parameters` | `dict[str, str]` | Parameters extracted from route patterns, e.g. `{'user_id': '42'}`. |
+| `query_parameters` | `QueryParams` | Query string parameters from the URL. |
+| `data` | `dict[str, Any]` | Arbitrary data passed to the `ui.sub_pages` element. |
+| `remaining_path` | `str` | The unmatched portion of the path when using wildcard routing. |
+
+---
+
+## Page isolation
+
+Each visitor to a `@ui.page` route gets their own private NiceGUI `Client` with a completely separate element tree. Updates to one user's page do not affect any other user.
+
+<Warning>
+The decorator only works for **free functions** and **static methods**. Instance methods and `__init__` constructors cannot be used directly because the FastAPI router cannot supply a `self` argument. See the [modularization example](https://github.com/zauberzeug/nicegui/tree/main/examples/modularization/) for strategies.
+</Warning>
+
+```python
+# ✅ Free function — works
+@ui.page('/ok')
+def my_page():
+    ui.label('Hello')
+
+# ✅ Static method — works
+class MyView:
+    @staticmethod
+    @ui.page('/also-ok')
+    def view():
+        ui.label('Hello from class')
+
+# ❌ Instance method — does NOT work
+class MyView:
+    @ui.page('/broken')
+    def view(self):          # 'self' cannot be injected by the router
+        ui.label('Broken')
+```

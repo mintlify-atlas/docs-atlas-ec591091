@@ -1,0 +1,461 @@
+---
+title: "NiceGUI Binding API — Reactive Data Bindings"
+sidebarTitle: "Binding API"
+description: "Complete reference for NiceGUI's reactive data binding system: element methods, module helpers, BindableProperty, bindable_dataclass, and @ui.refreshable."
+---
+
+NiceGUI's binding system lets you link Python object attributes to UI element properties so the interface stays in sync with your data automatically. Changes propagate without manual `.update()` calls — either instantly (when both sides use `BindableProperty`) or via a periodic refresh loop (for plain dicts and ordinary attributes).
+
+## How bindings work
+
+NiceGUI uses two complementary propagation mechanisms:
+
+- **Push (synchronous):** When a property that has a `BindableProperty` descriptor is set, changes propagate immediately through all linked bindings.
+- **Pull (periodic):** A background loop runs every `binding_refresh_interval` seconds (default `0.1`) and re-checks `active_links`. This makes bindings work against plain `dict` keys and ordinary object attributes that have no setter to hook into.
+
+<Note>
+You usually don't need to call `.update()` after a bound assignment. Either the `BindableProperty` descriptor or the refresh loop handles it automatically.
+</Note>
+
+---
+
+## Element instance methods
+
+Every NiceGUI element inherits the following bind methods. Replace `<prop>` with `value`, `text`, `visibility`, `enabled`, `content`, or `source` — whichever applies to the element you're working with.
+
+### `.bind_<prop>(obj, attr, forward=None, backward=None)`
+
+Create a **bidirectional** binding between the element property and `obj.attr`. Both sides stay in sync. The backward binding takes precedence for the initial synchronization.
+
+<ParamField path="obj" type="Any" required>
+  The Python object to bind to (dict, dataclass, arbitrary class instance, etc.).
+</ParamField>
+<ParamField path="attr" type="str | tuple[str, ...]" required>
+  The attribute name, dict key, or a tuple of strings for a nested path (e.g. `('user', 'name')`). Tuple paths are supported since v3.10.0.
+</ParamField>
+<ParamField path="forward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the element value before writing it to the model. Defaults to identity.
+</ParamField>
+<ParamField path="backward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the model value before writing it to the element. Defaults to identity.
+</ParamField>
+
+```python
+from nicegui import ui
+
+class State:
+    name = 'Alice'
+
+state = State()
+ui.input('Name').bind_value(state, 'name')
+# Editing the input updates state.name, and changing state.name updates the input.
+ui.run()
+```
+
+---
+
+### `.bind_<prop>_from(obj, attr, backward=None)`
+
+**One-way** binding: the element reads from `obj.attr`. Changes to the model update the element; changes to the element do not propagate back.
+
+<ParamField path="obj" type="Any" required>
+  The source object to read from.
+</ParamField>
+<ParamField path="attr" type="str | tuple[str, ...]" required>
+  Attribute name, dict key, or nested path tuple.
+</ParamField>
+<ParamField path="backward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the model value before writing it to the element.
+</ParamField>
+
+```python
+from nicegui import ui
+
+data = {'count': 0}
+
+# The label always shows the current count.
+ui.label().bind_text_from(data, 'count', backward=lambda v: f'Count: {v}')
+
+def increment():
+    data['count'] += 1
+
+ui.button('+1', on_click=increment)
+ui.run()
+```
+
+---
+
+### `.bind_<prop>_to(obj, attr, forward=None)`
+
+**One-way** binding: the element writes to `obj.attr`. Changes to the element propagate to the model; changes to the model do not update the element.
+
+<ParamField path="obj" type="Any" required>
+  The target object to write to.
+</ParamField>
+<ParamField path="attr" type="str | tuple[str, ...]" required>
+  Attribute name, dict key, or nested path tuple.
+</ParamField>
+<ParamField path="forward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the element value before writing it to the model.
+</ParamField>
+
+```python
+from nicegui import ui
+
+state = {'value': 50}
+slider = ui.slider(min=0, max=100, value=50)
+slider.bind_value_to(state, 'value')
+ui.run()
+```
+
+---
+
+### Available bind property names
+
+The following bind families are available on the element types that expose them:
+
+| Family | Applies to |
+|---|---|
+| `bind_value` / `bind_value_from` / `bind_value_to` | inputs, sliders, checkboxes, switches, selects, etc. |
+| `bind_text` / `bind_text_from` / `bind_text_to` | `ui.label`, `ui.button`, `ui.markdown`, `ui.html` |
+| `bind_visibility` / `bind_visibility_from` / `bind_visibility_to` | all elements |
+| `bind_enabled` / `bind_enabled_from` / `bind_enabled_to` | interactive elements |
+| `bind_content` / `bind_content_from` / `bind_content_to` | `ui.html`, `ui.markdown` |
+| `bind_source` / `bind_source_from` / `bind_source_to` | `ui.image`, `ui.audio`, `ui.video` |
+
+---
+
+## Module-level helpers
+
+The `nicegui.binding` module exposes three functions for creating bindings between arbitrary objects — not just UI elements.
+
+```python
+from nicegui import binding
+```
+
+### `binding.bind(self_obj, self_name, other_obj, other_name, *, forward=None, backward=None)`
+
+Creates a **bidirectional** binding between two objects. The backward direction takes precedence for initial sync.
+
+<ParamField path="self_obj" type="Any" required>
+  First object to bind.
+</ParamField>
+<ParamField path="self_name" type="str | tuple[str, ...]" required>
+  Property name (or nested path) on the first object.
+</ParamField>
+<ParamField path="other_obj" type="Any" required>
+  Second object to bind.
+</ParamField>
+<ParamField path="other_name" type="str | tuple[str, ...]" required>
+  Property name (or nested path) on the second object.
+</ParamField>
+<ParamField path="forward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied before writing to `other_obj`.
+</ParamField>
+<ParamField path="backward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied before writing to `self_obj`.
+</ParamField>
+
+---
+
+### `binding.bind_from(self_obj, self_name, other_obj, other_name, backward=None)`
+
+**One-way** binding from `other_obj.other_name` → `self_obj.self_name`.
+
+<ParamField path="self_obj" type="Any" required>
+  The object to write to.
+</ParamField>
+<ParamField path="self_name" type="str | tuple[str, ...]" required>
+  Attribute name on the target object.
+</ParamField>
+<ParamField path="other_obj" type="Any" required>
+  The object to read from.
+</ParamField>
+<ParamField path="other_name" type="str | tuple[str, ...]" required>
+  Attribute name on the source object.
+</ParamField>
+<ParamField path="backward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the value before writing it to `self_obj`.
+</ParamField>
+
+---
+
+### `binding.bind_to(self_obj, self_name, other_obj, other_name, forward=None)`
+
+**One-way** binding from `self_obj.self_name` → `other_obj.other_name`.
+
+<ParamField path="self_obj" type="Any" required>
+  The source object to read from.
+</ParamField>
+<ParamField path="self_name" type="str | tuple[str, ...]" required>
+  Attribute name on the source object.
+</ParamField>
+<ParamField path="other_obj" type="Any" required>
+  The target object to write to.
+</ParamField>
+<ParamField path="other_name" type="str | tuple[str, ...]" required>
+  Attribute name on the target object.
+</ParamField>
+<ParamField path="forward" type="Callable[[Any], Any] | None" default="None">
+  Transform applied to the value before writing it to `other_obj`.
+</ParamField>
+
+---
+
+## `BindableProperty` descriptor
+
+Use `BindableProperty` to make attributes on your own model classes trigger immediate (synchronous) binding propagation, just like NiceGUI elements do internally.
+
+```python
+from nicegui import binding, ui
+
+class MyModel:
+    # Declaring these as BindableProperty enables push propagation.
+    name = binding.BindableProperty()
+    score = binding.BindableProperty(on_change=lambda owner, value: print(f'score → {value}'))
+
+model = MyModel()
+model.name = 'Alice'
+model.score = 0
+
+ui.input('Name').bind_value(model, 'name')
+ui.label().bind_text_from(model, 'score', backward=lambda v: f'Score: {v}')
+
+ui.run()
+```
+
+<ParamField path="on_change" type="Callable[[owner, value], Any] | None" default="None">
+  Optional callback invoked with `(owner, new_value)` whenever the property value changes. Receives the instance that owns the property and the new value.
+</ParamField>
+
+<Note>
+`BindableProperty` stores the actual value in a private attribute prefixed with `___` on the owner instance. You don't need to initialize it — the first assignment creates it.
+</Note>
+
+---
+
+## `@bindable_dataclass` decorator
+
+`bindable_dataclass` transforms a plain class into both a dataclass and a bindable model with minimal boilerplate. All fields (or a specified subset) are automatically upgraded to `BindableProperty` descriptors.
+
+```python
+from nicegui import binding, ui
+
+@binding.bindable_dataclass
+class Config:
+    username: str = 'Alice'
+    theme: str = 'light'
+
+config = Config()
+
+ui.input('Username').bind_value(config, 'username')
+ui.select(['light', 'dark'], label='Theme').bind_value(config, 'theme')
+
+ui.run()
+```
+
+<ParamField path="cls" type="type | None" default="None">
+  The class to decorate. When used without parentheses (`@bindable_dataclass`), this is supplied automatically.
+</ParamField>
+<ParamField path="bindable_fields" type="Iterable[str] | None" default="None">
+  Names of fields to make bindable. When `None` (the default), all fields are made bindable.
+</ParamField>
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments forwarded to `dataclasses.dataclass`. Note: `slots=True` and `frozen=True` are not supported.
+</ParamField>
+
+<Warning>
+`slots=True` and `frozen=True` are incompatible with `bindable_dataclass` and raise a `ValueError`.
+</Warning>
+
+---
+
+## `@ui.refreshable` decorator
+
+`@ui.refreshable` wraps a UI builder function so it can be re-executed on demand, clearing and recreating all elements it produced.
+
+```python
+from nicegui import ui
+
+items = ['Apple', 'Banana']
+
+@ui.refreshable
+def item_list():
+    for item in items:
+        ui.label(item)
+
+item_list()  # initial render
+
+def add():
+    items.append('Cherry')
+    item_list.refresh()  # clears and rebuilds
+
+ui.button('Add', on_click=add)
+ui.run()
+```
+
+### `.refresh(*args, **kwargs)`
+
+Clears all elements created by the decorated function and re-runs it. Accepts the same arguments as the function itself or a subset; new arguments are merged with the ones passed on the previous call.
+
+```python
+@ui.refreshable
+def greeting(name: str = 'World'):
+    ui.label(f'Hello, {name}!')
+
+greeting()
+ui.button('Alice', on_click=lambda: greeting.refresh(name='Alice'))
+```
+
+### `ui.refreshable_method`
+
+An alias for `@ui.refreshable` that prevents static type-checker errors when decorating **instance methods** inside classes.
+
+```python
+from nicegui import ui
+
+class Dashboard:
+    def __init__(self):
+        self.data = []
+
+    @ui.refreshable_method
+    def render(self):
+        for item in self.data:
+            ui.label(item)
+```
+
+### `ui.state(value)`
+
+Creates a local state variable inside a `@ui.refreshable` function, similar to React's `useState`. Returns `(current_value, setter)`. Calling the setter triggers a refresh automatically.
+
+```python
+@ui.refreshable
+def counter():
+    count, set_count = ui.state(0)
+    ui.label(f'Count: {count}')
+    ui.button('+1', on_click=lambda: set_count(count + 1))
+
+counter()
+ui.run()
+```
+
+<Note>
+`ui.state()` can only be called inside a `@ui.refreshable` function. Each call corresponds to a positional slot; the order of calls must be stable across refreshes.
+</Note>
+
+---
+
+## `binding_refresh_interval` parameter
+
+Controls how frequently the pull-based refresh loop checks active bindings. Set it in `ui.run()`:
+
+```python
+ui.run(binding_refresh_interval=0.1)  # default: 0.1 seconds
+```
+
+<ParamField path="binding_refresh_interval" type="float | None" default="0.1">
+  Interval in seconds between pull-loop iterations. Set to a higher value to reduce CPU usage when you have many bindings. Set to `None` to disable the pull loop entirely (only push propagation via `BindableProperty` will work).
+</ParamField>
+
+<Warning>
+Setting `binding_refresh_interval=None` disables the pull loop. Bindings to plain dicts and ordinary attributes that don't use `BindableProperty` will no longer update. Elements that bind to other NiceGUI elements (which use `BindableProperty` internally) are unaffected.
+</Warning>
+
+---
+
+## Binding to dicts, dataclasses, and nested paths
+
+<Accordion title="Bind to a dict key">
+
+Dict keys work as binding targets without any setup. The pull loop detects changes on each tick.
+
+```python
+from nicegui import ui
+
+data = {'username': 'Alice', 'score': 0}
+
+ui.input('Username').bind_value(data, 'username')
+ui.label().bind_text_from(data, 'score', backward=lambda v: f'Score: {v}')
+
+ui.run()
+```
+
+</Accordion>
+
+<Accordion title="Bind to a nested path (tuple syntax)">
+
+Pass a tuple of strings to traverse nested dicts or attribute chains. Introduced in v3.10.0.
+
+```python
+from nicegui import ui
+
+state = {'user': {'name': 'Alice'}}
+
+ui.input('Name').bind_value(state, ('user', 'name'))
+
+ui.run()
+```
+
+</Accordion>
+
+<Accordion title="Bind to a standard dataclass">
+
+Standard `dataclasses.dataclass` fields work with the pull loop. For synchronous propagation, use `@bindable_dataclass` instead.
+
+```python
+import dataclasses
+from nicegui import ui
+
+@dataclasses.dataclass
+class Profile:
+    name: str = 'Alice'
+    age: int = 30
+
+profile = Profile()
+
+ui.input('Name').bind_value(profile, 'name')
+ui.number('Age').bind_value(profile, 'age')
+
+ui.run()
+```
+
+</Accordion>
+
+<Accordion title="Transform functions (forward / backward)">
+
+Use `forward` and `backward` to convert between the model representation and the UI representation.
+
+```python
+from nicegui import ui
+
+state = {'celsius': 20.0}
+
+# Display Fahrenheit, store Celsius
+ui.number('°F').bind_value(
+    state, 'celsius',
+    forward=lambda f: (f - 32) * 5 / 9,   # °F → °C before storing
+    backward=lambda c: c * 9 / 5 + 32,     # °C → °F before displaying
+)
+
+ui.run()
+```
+
+</Accordion>
+
+---
+
+## Removing bindings
+
+### `binding.remove(objects)`
+
+Removes all bindings that involve any of the given objects. Called automatically when elements are deleted, but can be called manually for clean teardown.
+
+```python
+from nicegui import binding
+
+binding.remove([my_model, some_element])
+```
+
+<ParamField path="objects" type="Iterable[Any]" required>
+  An iterable of objects whose bindings should be removed.
+</ParamField>

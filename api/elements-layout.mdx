@@ -1,0 +1,628 @@
+---
+title: "NiceGUI Layout Elements API Reference"
+sidebarTitle: "Layout Elements"
+description: "API reference for NiceGUI layout and container elements: row, column, card, grid, expansion, splitter, tabs, stepper, dialog, header, footer, drawer, and scroll area."
+---
+
+NiceGUI uses a context-manager pattern for layout elements. Wrapping elements in a `with` block places them as children of that container. This mirrors the HTML parent–child relationship but in pure Python, making it easy to build complex responsive layouts without writing any HTML or CSS.
+
+```python
+# Basic context manager pattern
+with ui.row():
+    ui.label('First')
+    ui.label('Second')  # both labels are children of the row
+```
+
+All layout elements support the same base styling API as described in the Basic Elements reference (`.classes()`, `.style()`, `.props()`, etc.). Container elements also support `.clear()` to remove all children dynamically.
+
+---
+
+## `ui.row`
+
+```python
+ui.row(
+    *,
+    wrap: bool = True,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+A flexbox row container. Children are placed side-by-side horizontally.
+
+<ParamField path="wrap" type="bool" default="True">
+  Whether child elements wrap to a new line when the container is full.
+</ParamField>
+
+<ParamField path="align_items" type="str | None" default="None">
+  Cross-axis alignment: `'start'`, `'end'`, `'center'`, `'baseline'`, or `'stretch'`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.row(align_items='center'):
+    ui.icon('home')
+    ui.label('Dashboard')
+    ui.space()
+    ui.button('Settings', icon='settings')
+```
+
+<Tip>
+`ui.row` adds the Quasar `row` class, so Quasar column classes (`col`, `col-4`, etc.) work inside it for responsive grid layouts.
+</Tip>
+
+---
+
+## `ui.column`
+
+```python
+ui.column(
+    *,
+    wrap: bool = False,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+A flexbox column container. Children are stacked vertically.
+
+<ParamField path="wrap" type="bool" default="False">
+  Whether children wrap horizontally when the column overflows.
+</ParamField>
+
+<ParamField path="align_items" type="str | None" default="None">
+  Cross-axis (horizontal) alignment of children.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.column(align_items='stretch'):
+    ui.input(label='First name')
+    ui.input(label='Last name')
+    ui.button('Submit')
+```
+
+---
+
+## `ui.card`
+
+```python
+ui.card(
+    *,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+A material-design card with a drop shadow, based on Quasar's `QCard`. NiceGUI's `ui.card` adds padding and shows nested borders by default (unlike Quasar's raw `QCard`).
+
+<ParamField path="align_items" type="str | None" default="None">
+  Cross-axis alignment of children within the card.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.card().classes('w-64'):
+    ui.label('Card title').classes('text-h6')
+    ui.separator()
+    ui.label('Card body content goes here.')
+    with ui.card_actions():
+        ui.button('Action', flat=True)
+```
+
+**Sub-elements:**
+
+| Element | Description |
+|---------|-------------|
+| `ui.card_section()` | Groups related content with consistent padding. Based on `QCardSection`. |
+| `ui.card_actions()` | Houses action buttons at the card bottom. Based on `QCardActions`. |
+
+```python
+from nicegui import ui
+
+with ui.card():
+    with ui.card_section():
+        ui.label('Title').classes('text-h5')
+    with ui.card_section():
+        ui.label('Subtitle or body text.')
+    with ui.card_actions():
+        ui.button('OK', on_click=lambda: ui.notify('OK!'))
+        ui.button('Cancel', color='grey')
+```
+
+**`.tight()` method:** Removes padding and gaps between nested elements to match original Quasar `QCard` behavior.
+
+---
+
+## `ui.grid`
+
+```python
+ui.grid(
+    *,
+    rows: int | str | None = None,
+    columns: int | str | None = None,
+)
+```
+
+A CSS Grid container. Children are placed in a grid layout.
+
+<ParamField path="rows" type="int | str | None" default="None">
+  Number of equal rows, or a `grid-template-rows` CSS string (e.g. `'auto 1fr'`).
+</ParamField>
+
+<ParamField path="columns" type="int | str | None" default="None">
+  Number of equal columns, or a `grid-template-columns` CSS string (e.g. `'200px 1fr'`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.grid(columns=3).classes('w-full gap-4'):
+    for i in range(9):
+        ui.card().classes('p-4').with_text(f'Cell {i + 1}')
+
+# Custom column widths
+with ui.grid(columns='200px 1fr'):
+    ui.label('Sidebar')
+    ui.label('Main content')
+```
+
+---
+
+## `ui.expansion`
+
+```python
+ui.expansion(
+    text: str = '',
+    *,
+    caption: str | None = None,
+    icon: str | None = None,
+    group: str | None = None,
+    value: bool = False,
+    on_value_change: Handler[ValueChangeEventArguments[bool]] | None = None,
+)
+```
+
+A collapsible panel based on Quasar's `QExpansionItem`.
+
+<ParamField path="text" type="str" default="">
+  Header title text.
+</ParamField>
+
+<ParamField path="caption" type="str | None" default="None">
+  Sub-title text displayed below the main title.
+</ParamField>
+
+<ParamField path="icon" type="str | None" default="None">
+  Leading icon name.
+</ParamField>
+
+<ParamField path="group" type="str | None" default="None">
+  Accordion group name. Only one expansion in the group opens at a time.
+</ParamField>
+
+<ParamField path="value" type="bool" default="False">
+  Whether the panel is initially open.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.expansion('Details', icon='info', caption='Click to expand'):
+    ui.label('Hidden content revealed on click.')
+
+# Accordion mode
+for section in ['Section 1', 'Section 2', 'Section 3']:
+    with ui.expansion(section, group='accordion'):
+        ui.label(f'Content for {section}')
+```
+
+**Methods:** `.open()`, `.close()`
+
+---
+
+## `ui.splitter`
+
+```python
+ui.splitter(
+    *,
+    horizontal: bool = False,
+    reverse: bool = False,
+    limits: tuple[float, float] = (0, 100),
+    value: float = 50,
+    on_change: Handler[ValueChangeEventArguments[float | None]] | None = None,
+)
+```
+
+A resizable two-pane splitter based on Quasar's `QSplitter`. Exposes three slots: `before`, `after`, and `separator`.
+
+<ParamField path="horizontal" type="bool" default="False">
+  Split horizontally (top/bottom) instead of vertically (left/right).
+</ParamField>
+
+<ParamField path="reverse" type="bool" default="False">
+  Apply the `value` size to the second panel instead of the first.
+</ParamField>
+
+<ParamField path="limits" type="tuple[float, float]" default="(0, 100)">
+  Minimum and maximum percentage sizes for the first panel.
+</ParamField>
+
+<ParamField path="value" type="float" default="50">
+  Initial size percentage of the first panel (or second if `reverse=True`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.splitter(value=30) as splitter:
+    with splitter.before:
+        ui.label('Navigation').classes('text-h6 p-4')
+    with splitter.after:
+        ui.label('Content area').classes('p-4')
+```
+
+---
+
+## `ui.tabs` / `ui.tab` / `ui.tab_panels` / `ui.tab_panel`
+
+```python
+ui.tabs(
+    *,
+    value: Tab | TabPanel | str | None = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+
+ui.tab(
+    name: str,
+    label: str | None = None,
+    icon: str | None = None,
+)
+
+ui.tab_panels(
+    tabs: Tabs | None = None,
+    *,
+    value: Tab | TabPanel | str | None = None,
+    on_change: Handler | None = None,
+    animated: bool = True,
+    keep_alive: bool = True,
+)
+
+ui.tab_panel(name: Tab | str)
+```
+
+Quasar `QTabs` + `QTabPanels` tab navigation system. `ui.tabs` holds the tab header bar; `ui.tab_panels` holds the content. Linking them by passing the `tabs` argument to `tab_panels` (or binding `.value`) keeps them in sync.
+
+<ParamField path="name" type="str" required>
+  `ui.tab`: unique identifier for the tab; becomes the value of the parent `ui.tabs`.
+</ParamField>
+
+<ParamField path="label" type="str | None" default="None">
+  `ui.tab`: display label (defaults to `name`).
+</ParamField>
+
+<ParamField path="tabs" type="Tabs | None" default="None">
+  `ui.tab_panels`: link to a `ui.tabs` element for automatic synchronization.
+</ParamField>
+
+<ParamField path="keep_alive" type="bool" default="True">
+  `ui.tab_panels`: use Vue `<keep-alive>` to preserve panel state when switching tabs.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.tabs() as tabs:
+    ui.tab('home', label='Home', icon='home')
+    ui.tab('about', label='About', icon='info')
+
+with ui.tab_panels(tabs, value='home'):
+    with ui.tab_panel('home'):
+        ui.label('Welcome to the Home tab!')
+    with ui.tab_panel('about'):
+        ui.label('About this application.')
+```
+
+---
+
+## `ui.stepper` / `ui.step` / `ui.stepper_navigation`
+
+```python
+ui.stepper(
+    *,
+    value: str | Step | None = None,
+    on_value_change: Handler[ValueChangeEventArguments] | None = None,
+    keep_alive: bool = True,
+)
+
+ui.step(
+    name: str,
+    title: str | None = None,
+    icon: str | None = None,
+)
+
+ui.stepper_navigation(*, wrap: bool = True)
+```
+
+A multi-step wizard based on Quasar's `QStepper`.
+
+<ParamField path="value" type="str | Step | None" default="None">
+  `ui.stepper`: initially active step name or `ui.step` instance. Defaults to the first step.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  `ui.step`: unique step identifier.
+</ParamField>
+
+<ParamField path="title" type="str | None" default="None">
+  `ui.step`: step header title (defaults to `name`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.stepper() as stepper:
+    with ui.step('details', title='Personal Details', icon='person'):
+        ui.input(label='Full name')
+        with ui.stepper_navigation():
+            ui.button('Next', on_click=stepper.next)
+
+    with ui.step('review', title='Review', icon='check'):
+        ui.label('Review your information.')
+        with ui.stepper_navigation():
+            ui.button('Back', on_click=stepper.previous).props('flat')
+            ui.button('Finish', on_click=lambda: ui.notify('Done!'))
+```
+
+**Methods on `ui.stepper`:** `.next()`, `.previous()`
+
+---
+
+## `ui.dialog`
+
+```python
+ui.dialog(*, value: bool = False)
+```
+
+A modal dialog based on Quasar's `QDialog`. By default the dialog can be dismissed by clicking the backdrop or pressing `Esc`. Use `.props('persistent')` to prevent this.
+
+<ParamField path="value" type="bool" default="False">
+  Whether the dialog is open on creation.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.dialog() as dialog:
+    with ui.card():
+        ui.label('Are you sure?')
+        with ui.row():
+            ui.button('Yes', on_click=lambda: dialog.submit('yes'))
+            ui.button('No', on_click=dialog.close)
+
+async def confirm():
+    result = await dialog
+    ui.notify(f'Result: {result}')
+
+ui.button('Open dialog', on_click=confirm)
+```
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.open()` | Open the dialog. |
+| `.close()` | Close the dialog. |
+| `.toggle()` | Toggle open/closed state. |
+| `.submit(result)` | Close the dialog and resolve any awaiting coroutine with `result`. |
+| `await dialog` | Async: open the dialog and await user action; returns the submitted result. |
+
+<Note>
+The dialog is an element, not a modal window — it stays in the DOM when closed. Either reuse it or call `.clear()` after dismissal to free resources.
+</Note>
+
+---
+
+## `ui.header`
+
+```python
+ui.header(
+    *,
+    value: bool = True,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    wrap: bool = True,
+    add_scroll_padding: bool = True,
+)
+```
+
+A top page header based on Quasar's `QHeader`. Must be used at the top-level page scope (not nested inside other containers).
+
+<ParamField path="value" type="bool" default="True">
+  Whether the header is initially visible.
+</ParamField>
+
+<ParamField path="fixed" type="bool" default="True">
+  Stick the header to the top of the viewport while scrolling.
+</ParamField>
+
+<ParamField path="bordered" type="bool" default="False">
+  Show a bottom border.
+</ParamField>
+
+<ParamField path="elevated" type="bool" default="False">
+  Add a drop shadow.
+</ParamField>
+
+<ParamField path="add_scroll_padding" type="bool" default="True">
+  Automatically add scroll padding so anchor targets are not hidden behind the header.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.header(elevated=True).classes('bg-primary text-white'):
+    ui.label('My App').classes('text-h6')
+    ui.space()
+    ui.button('Menu', icon='menu', color=None)
+```
+
+**Methods:** `.show()`, `.hide()`, `.toggle()`
+
+---
+
+## `ui.footer`
+
+```python
+ui.footer(
+    *,
+    value: bool = True,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    wrap: bool = True,
+)
+```
+
+A bottom page footer based on Quasar's `QFooter`. Must be used at the top-level page scope.
+
+<ParamField path="fixed" type="bool" default="True">
+  Stick the footer to the bottom of the viewport.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.footer(bordered=True).classes('bg-grey-2 text-grey-8'):
+    ui.label('© 2024 My App').classes('text-caption')
+```
+
+**Methods:** `.show()`, `.hide()`, `.toggle()`
+
+---
+
+## `ui.left_drawer` / `ui.right_drawer`
+
+```python
+ui.left_drawer(
+    *,
+    value: bool | None = None,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    top_corner: bool = False,
+    bottom_corner: bool = False,
+)
+
+ui.right_drawer(...)  # identical parameters
+```
+
+Side navigation drawers based on Quasar's `QDrawer`. Must be used at the top-level page scope.
+
+<ParamField path="value" type="bool | None" default="None">
+  `True` — open. `False` — closed. `None` — auto-open above 1024 px viewport width.
+</ParamField>
+
+<ParamField path="fixed" type="bool" default="True">
+  Fixed to the viewport (does not scroll with content).
+</ParamField>
+
+<ParamField path="bordered" type="bool" default="False">
+  Show a border on the inner edge.
+</ParamField>
+
+<ParamField path="elevated" type="bool" default="False">
+  Add a drop shadow.
+</ParamField>
+
+<ParamField path="top_corner" type="bool" default="False">
+  Expand the drawer into the top corner (overlap the header).
+</ParamField>
+
+<ParamField path="bottom_corner" type="bool" default="False">
+  Expand the drawer into the bottom corner (overlap the footer).
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.header():
+    ui.button(icon='menu', on_click=lambda: left_drawer.toggle(), color=None)
+    ui.label('My App')
+
+with ui.left_drawer(value=None, bordered=True) as left_drawer:
+    ui.label('Navigation').classes('text-h6 p-4')
+    ui.separator()
+    ui.button('Home', icon='home', on_click=lambda: ui.navigate.to('/'))
+
+with ui.page_container():
+    ui.label('Page content')
+```
+
+**Methods:** `.show()`, `.hide()`, `.toggle()`
+
+---
+
+## `ui.scroll_area`
+
+```python
+ui.scroll_area(*, on_scroll: Handler[ScrollEventArguments] | None = None)
+```
+
+A container with a custom scrollbar based on Quasar's `QScrollArea`. This is useful for creating fixed-height regions with overflow scrolling.
+
+<ParamField path="on_scroll" type="Handler | None" default="None">
+  Callback receiving `ScrollEventArguments` with `vertical_position`, `vertical_percentage`, `vertical_size`, `vertical_container_size`, and the equivalent horizontal fields.
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.scroll_area().classes('h-64 border'):
+    for i in range(50):
+        ui.label(f'Line {i + 1}')
+```
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.scroll_to(pixels=..., axis='vertical', duration=0.0)` | Scroll to an absolute pixel position with optional animation. |
+| `.scroll_to(percent=..., axis='vertical', duration=0.0)` | Scroll to a percentage position (0.0–1.0). |
+| `.on_scroll(callback)` | Add a scroll event callback after construction. |
+
+```python
+from nicegui import ui
+
+area = ui.scroll_area().classes('h-32 border')
+with area:
+    for i in range(20):
+        ui.label(f'Item {i}')
+
+ui.button('Scroll to bottom', on_click=lambda: area.scroll_to(percent=1.0, duration=0.3))
+```
+
+---
+
+## Child Slot Pattern
+
+Several advanced elements expose named slots rather than a single default content area. Use the slot object as a context manager to place children into a specific slot:
+
+```python
+from nicegui import ui
+
+# Splitter slots
+with ui.splitter() as sp:
+    with sp.before:
+        ui.label('Left panel')
+    with sp.after:
+        ui.label('Right panel')
+    with sp.separator:
+        ui.icon('drag_indicator')  # custom separator handle
+
+# Table header/body slots
+table = ui.table(columns=[...], rows=[...])
+with table.add_slot('body-cell-name'):
+    ui.label('Custom cell')
+```

@@ -1,0 +1,133 @@
+---
+title: "Installing NiceGUI via pip, conda-forge, or Docker"
+sidebarTitle: "Installation"
+description: "Install NiceGUI via pip, conda-forge, or Docker. Covers Python requirements, optional extras, Docker usage, and Jupyter Notebook support."
+---
+
+NiceGUI is available as a PyPI package, a conda-forge package, and an official Docker image. Choose the method that fits your environment — all three give you the same framework.
+
+## System Requirements
+
+- **Python 3.10 or newer** (3.10, 3.11, 3.12, 3.13, and 3.14 are tested in CI)
+- A modern web browser (Chrome, Firefox, Safari, Edge) — NiceGUI renders its UI there
+- No Node.js, npm, or separate frontend toolchain required
+
+## Install
+
+<CodeGroup>
+
+```bash pip
+pip install nicegui
+```
+
+```bash conda
+conda install -c conda-forge nicegui
+```
+
+```bash Docker
+docker pull zauberzeug/nicegui
+```
+
+</CodeGroup>
+
+## Optional Extras
+
+NiceGUI's core install is intentionally lean. Additional visualization libraries and integrations are gated behind optional extras so you only pull in what you need:
+
+```bash
+# Plotly interactive charts
+pip install "nicegui[plotly]"
+
+# Matplotlib figures
+pip install "nicegui[matplotlib]"
+
+# Native desktop window (via pywebview)
+pip install "nicegui[native]"
+
+# Vega-Altair charts
+pip install "nicegui[altair]"
+
+# Highcharts (requires a Highcharts license for commercial use)
+pip install "nicegui[highcharts]"
+
+# Redis-backed user storage (for multi-instance deployments)
+pip install "nicegui[redis]"
+```
+
+You can combine multiple extras in one command:
+
+```bash
+pip install "nicegui[plotly,matplotlib,native]"
+```
+
+## Docker
+
+The official image is `zauberzeug/nicegui`. It exposes port `8080` by default.
+
+```bash
+# Run the NiceGUI demo site locally
+docker run -p 8080:8080 zauberzeug/nicegui
+```
+
+To run your own app in Docker, mount your project and point the container at your entry file:
+
+```dockerfile
+FROM zauberzeug/nicegui
+
+COPY . /app
+WORKDIR /app
+
+CMD ["python", "main.py"]
+```
+
+```bash
+docker build -t my-nicegui-app .
+docker run -p 8080:8080 my-nicegui-app
+```
+
+<Note>
+  In Docker (and any production deployment) you should disable auto-reload and suppress the browser-open behavior: `ui.run(reload=False, show=False)`. The reload watcher is designed for local development only.
+</Note>
+
+## Verify Your Installation
+
+After installing, confirm NiceGUI is available and check the installed version:
+
+```python
+import nicegui
+print(nicegui.__version__)
+```
+
+Or run the minimal smoke-test below — if it starts without errors and the browser opens, the installation is working:
+
+```python
+from nicegui import ui
+
+ui.label('NiceGUI is installed correctly!')
+ui.run()
+```
+
+## Jupyter Notebook Support
+
+NiceGUI can run inside Jupyter Notebooks and JupyterLab. Call `ui.run()` in a cell and NiceGUI will start the server and display the UI inline or in a new tab, depending on your setup:
+
+```python
+from nicegui import ui
+
+ui.label('Hello from Jupyter!')
+ui.button('Click me', on_click=lambda: ui.notify('Hello!'))
+
+ui.run()
+```
+
+<Tip>
+  In interactive environments (Jupyter, IPython), auto-reload is automatically disabled because there is no script file to re-execute. State is shared across all cells in the same kernel session.
+</Tip>
+
+## Upgrading
+
+```bash
+pip install --upgrade nicegui
+```
+
+Check the [changelog](https://github.com/zauberzeug/nicegui/releases) for breaking changes before upgrading across major versions.

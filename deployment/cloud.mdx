@@ -1,0 +1,369 @@
+---
+title: "Deploying NiceGUI to Cloud and Production"
+sidebarTitle: "Cloud Deployment"
+description: "Deploy NiceGUI to production: Fly.io, AWS, GCP, Azure, Nginx WebSocket proxying, sticky sessions, SSL/TLS termination, and production hardening."
+---
+
+NiceGUI apps are standard ASGI applications served by Uvicorn, which means they can be deployed anywhere that runs a Python process or a Docker container. The key production consideration is that NiceGUI maintains per-client WebSocket connections and in-memory state inside a single process — so your infrastructure must route all requests from a given user to the **same server instance** (sticky sessions), and your reverse proxy must correctly upgrade HTTP connections to WebSocket.
+
+## Production Requirements
+
+Before deploying to any cloud platform, ensure your application satisfies these requirements:
+
+<CardGroup cols={2}>
+  <Card title="Single Worker" icon="server">
+    Run exactly one Uvicorn worker. Multiple workers cannot share WebSocket state. Scale horizontally across multiple single-worker instances behind a sticky-session load balancer.
+  </Card>
+  <Card title="WebSocket Support" icon="bolt">
+    Your platform and any reverse proxy in front of NiceGUI must support and pass through WebSocket connections. HTTP-only platforms (some serverless runtimes) will not work.
+  </Card>
+  <Card title="Sticky Sessions" icon="link">
+    All requests from a single browser session must reach the same backend instance. Configure session affinity (sticky sessions) at your load balancer.
+  </Card>
+  <Card title="Storage Secret" icon="key">
+    Set `storage_secret` to a long random string to enable `ui.storage.user` and `ui.storage.browser`. Load it from an environment variable or secrets manager.
+  </Card>
+</CardGroup>
+
+## `ui.run()` Settings for Production
+
+Configure `ui.run()` as follows in your production entry point:
+
+```python
+import os
+from nicegui import ui
+
+ui.run(
+    host='0.0.0.0',        # bind to all interfaces in a container
+    port=8080,
+    reload=False,          # never use auto-reload in production
+    prod_js=True,          # serve minified Vue/Quasar bundles (default)
+    storage_secret=os.environ['STORAGE_SECRET'],
+    show=False,            # don't try to open a browser on the server
+)
+```
+
+<Warning>
+  Never hard-code `storage_secret` in source code. Use environment variables, Docker secrets, or a secrets manager (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, etc.) and inject the value at runtime.
+</Warning>
+
+## Fly.io
+
+[Fly.io](https://fly.io) is an excellent fit for NiceGUI because it supports long-lived WebSocket connections, HTTP/2, and provides Anycast TLS termination out of the box. The NiceGUI project itself is hosted on Fly.io.
+
+### fly.toml
+
+The official `fly.toml` used by the NiceGUI website:
+
+```toml
+app = "nicegui"
+primary_region = "lhr"
+kill_signal = "SIGTERM"
+kill_timeout = "5s"
+swap_size_mb = 2048
+
+[build]
+  dockerfile = "fly.dockerfile"
+
+[deploy]
+  strategy = "canary"
+
+[processes]
+  app = ""
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["app"]
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 400
+    soft_limit = 70
+
+  [[services.tcp_checks]]
+    interval = "10s"
+    timeout = "5s"
+    grace_period = "30s"
+
+  [[services.http_checks]]
+    interval = "20s"
+    timeout = "10s"
+    grace_period = "1m0s"
+    method = "get"
+    path = "/health"
+    protocol = "http"
+    tls_skip_verify = false
+```
+
+Key points:
+- `force_https = true` on port 80 redirects all HTTP traffic to HTTPS automatically.
+- `kill_signal = "SIGTERM"` ensures NiceGUI receives the standard shutdown signal for graceful cleanup.
+- The `/health` endpoint is polled every 20 seconds to confirm the app is alive.
+
+### fly.dockerfile
+
+The Dockerfile used for Fly.io deployments:
+
+```dockerfile
+FROM python:3.14-slim
+
+LABEL maintainer="Zauberzeug GmbH <nicegui@zauberzeug.com>"
+
+RUN apt update && apt install -y curl procps
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock* ./
+
+RUN uv sync --no-install-project --no-dev --extra altair --extra anywidget \
+    --extra plotly --extra matplotlib --extra highcharts --group website
+
+ADD . .
+
+# Ensure a unique version so browsers don't serve stale cached static files
+ARG VERSION=unknown
+RUN if [ "$VERSION" = "unknown" ]; then \
+      echo "Error: VERSION build argument is required." && exit 1; \
+    fi
+
+ENV POETRY_DYNAMIC_VERSIONING_BYPASS=$VERSION
+RUN uv pip install .
+
+EXPOSE 8080
+
+COPY fly-entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+
+ENV PYTHONUNBUFFERED=1
+ENV ENABLE_ANALYTICS=true
+
+CMD ["uv", "run", "--no-sync", "main.py"]
+```
+
+### Deploy to Fly.io
+
+```bash
+# Install the flyctl CLI
+curl -L https://fly.io/install.sh | sh
+
+# Authenticate
+fly auth login
+
+# Launch a new app (interactive setup)
+fly launch
+
+# Deploy with a version tag
+fly deploy --build-arg VERSION=$(git describe --abbrev=0 --tags --match 'v*' 2>/dev/null | sed 's/^v//' || echo '0.0.0')
+
+# Set secrets
+fly secrets set STORAGE_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
+```
+
+## AWS, GCP, and Azure
+
+All three major clouds support containerized workloads. The general pattern is the same: **package your app as a Docker image, push it to a container registry, and run it as a single-instance service behind a managed load balancer with sticky sessions enabled**.
+
+<Steps>
+  <Step title="Build and push your image">
+    ```bash
+    # AWS ECR example
+    aws ecr get-login-password --region us-east-1 | \
+      docker login --username AWS --password-stdin 123456789.dkr.ecr.us-east-1.amazonaws.com
+
+    docker build -t my-nicegui-app .
+    docker tag my-nicegui-app:latest 123456789.dkr.ecr.us-east-1.amazonaws.com/my-nicegui-app:latest
+    docker push 123456789.dkr.ecr.us-east-1.amazonaws.com/my-nicegui-app:latest
+    ```
+  </Step>
+
+  <Step title="Deploy as a container service">
+    Use the managed service appropriate to your cloud:
+    - **AWS** — ECS (Fargate or EC2 launch type), App Runner, or Elastic Beanstalk
+    - **GCP** — Cloud Run (with minimum 1 instance to avoid cold starts on WebSocket), GKE
+    - **Azure** — Container Apps, App Service (Linux containers), AKS
+
+    Configure **exactly one container replica** per task/pod unless you have sticky sessions configured at the load balancer.
+  </Step>
+
+  <Step title="Enable sticky sessions">
+    At your load balancer or gateway, enable session affinity based on a cookie or source IP so that all WebSocket frames from a browser reach the same container instance:
+    - **AWS ALB** — enable "Stickiness" on the target group with duration-based cookies
+    - **GCP Cloud Load Balancing** — enable "Session affinity" (client IP or generated cookie)
+    - **Azure Application Gateway** — enable cookie-based affinity
+  </Step>
+
+  <Step title="Inject secrets">
+    Pass `STORAGE_SECRET` and any other sensitive values via the platform's secrets mechanism — never bake them into the image:
+    - AWS: Secrets Manager + ECS task definition secret references
+    - GCP: Secret Manager + Cloud Run secret mounts
+    - Azure: Key Vault + Container Apps secret references
+  </Step>
+</Steps>
+
+<Note>
+  **AWS App Runner and GCP Cloud Run** will scale to zero by default, which terminates long-lived WebSocket connections. Configure a minimum instance count of 1 and ensure your load balancer (or the platform itself) supports WebSocket upgrades.
+</Note>
+
+## Nginx Reverse Proxy
+
+Whether you self-host or run on a cloud VM, Nginx is a popular choice for TLS termination and WebSocket proxying in front of NiceGUI.
+
+### Production Site Config (single domain)
+
+This stripped-down config is taken from the `examples/nginx_https/nginx_site.conf` in the NiceGUI repository:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name my-domain.com;
+
+    # Redirect all HTTP to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name my-domain.com;
+
+    # Let's Encrypt certificate paths
+    ssl_certificate     /etc/letsencrypt/live/my-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/my-domain.com/privkey.pem;
+    ssl_session_timeout 1d;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket upgrade — mandatory for NiceGUI
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+    }
+}
+```
+
+Install it on an existing Nginx server:
+
+```bash
+sudo cp nginx_site.conf /etc/nginx/sites-available/my_nicegui_app.conf
+# Edit the domain name, certificate paths, and upstream port
+sudo nano /etc/nginx/sites-available/my_nicegui_app.conf
+sudo ln -s /etc/nginx/sites-available/my_nicegui_app.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Sub-Path Hosting
+
+To serve NiceGUI under a path prefix (e.g. `https://my-domain.com/nicegui/`), use the sub-path nginx config from `examples/nginx_subpath`. The key additions are the `X-Forwarded-Prefix` header and a `proxy_redirect` rule to rewrite upstream redirects:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+    resolver 127.0.0.11;
+
+    # Redirect bare /nicegui to /nicegui/
+    location = /nicegui {
+        return 301 /nicegui/;
+    }
+
+    # Proxy everything under /nicegui/ to NiceGUI
+    location /nicegui/ {
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Strip the /nicegui/ prefix before forwarding
+        proxy_pass http://app:8080/;
+        # Tell NiceGUI what prefix was stripped
+        proxy_set_header X-Forwarded-Prefix /nicegui;
+        # Rewrite Location headers in upstream redirects
+        proxy_redirect ~^https?://[^/]+(/.*)$ /nicegui$1;
+    }
+}
+```
+
+<Tip>
+  The `X-Forwarded-Prefix` header is the mechanism NiceGUI uses to generate correct absolute URLs when it is mounted at a sub-path. Your application code does not need any path-prefix awareness — NiceGUI reads the header and adjusts links automatically.
+</Tip>
+
+## SSL/TLS Termination
+
+Terminate TLS at the reverse proxy or load balancer rather than inside NiceGUI. This is the standard pattern for cloud deployments:
+
+1. Obtain a certificate from [Let's Encrypt](https://letsencrypt.org/) (free) using Certbot, or from your cloud provider's managed certificate service.
+2. Configure your proxy/load balancer to listen on port 443 and forward decrypted traffic to NiceGUI on port 8080 over HTTP.
+3. Pass `X-Forwarded-Proto: https` so NiceGUI knows the original request was secure.
+
+If you need NiceGUI to serve HTTPS directly (without a proxy), pass the certificate paths as extra keyword arguments — they are forwarded to Uvicorn:
+
+```python
+ui.run(
+    host='0.0.0.0',
+    port=443,
+    reload=False,
+    ssl_certfile='/path/to/fullchain.pem',
+    ssl_keyfile='/path/to/privkey.pem',
+    storage_secret=os.environ['STORAGE_SECRET'],
+)
+```
+
+## Production Checklist
+
+<Steps>
+  <Step title="Disable reload">
+    ```python
+    ui.run(reload=False)
+    ```
+  </Step>
+  <Step title="Bind to 0.0.0.0">
+    ```python
+    ui.run(host='0.0.0.0', port=8080)
+    ```
+  </Step>
+  <Step title="Set storage_secret from environment">
+    ```python
+    ui.run(storage_secret=os.environ['STORAGE_SECRET'])
+    ```
+  </Step>
+  <Step title="Use prod_js=True (default)">
+    Leave `prod_js=True` to serve minified Vue and Quasar bundles for faster page loads.
+  </Step>
+  <Step title="Configure WebSocket proxying">
+    Ensure every proxy layer passes `Upgrade` and `Connection` headers.
+  </Step>
+  <Step title="Enable sticky sessions">
+    Route all requests from a given client to the same backend process at the load balancer.
+  </Step>
+  <Step title="Set PYTHONUNBUFFERED=1">
+    Prevents buffered stdout from hiding logs in containerised environments.
+  </Step>
+</Steps>

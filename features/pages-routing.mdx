@@ -1,0 +1,324 @@
+---
+title: "NiceGUI Pages & Routing: Multi-Page Apps Guide"
+sidebarTitle: "Pages & Routing"
+description: "Build multi-page NiceGUI apps with @ui.page, path parameters, navigation helpers, APIRouter modules, and sub-page in-page routing."
+---
+
+NiceGUI uses FastAPI under the hood, so every page is simply a Python function decorated with `@ui.page`. Each visitor who hits that route gets their own isolated execution of the function — their own element tree, their own local variables. This per-user isolation is the foundation of NiceGUI's programming model.
+
+## The `@ui.page` Decorator
+
+Decorate any free function (or static method) to register it as a route. NiceGUI creates a fresh page scope for every browser connection to that path.
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.label('Hello, world!')
+
+ui.run()
+```
+
+<Note>
+The decorated function's **name** is unused and can be anything. The route is determined entirely by the `path` argument. The decorator only works on free functions and static methods — instance methods would require a `self` that the router cannot supply.
+</Note>
+
+### Full Signature
+
+```python
+@ui.page(
+    path: str,                        # Route, must start with '/'
+    *,
+    title: str | None = None,         # Browser tab title (falls back to ui.run title)
+    viewport: str | None = None,      # <meta name="viewport"> content
+    favicon: str | Path | None = None,# Emoji, local file, URL, SVG, or data URL
+    dark: bool | None = ...,          # Dark mode (... = inherit from ui.run)
+    language: Language | None = ...,  # Quasar locale + html lang (... = inherit)
+    response_timeout: float = 3.0,    # Max seconds to build the page skeleton
+    reconnect_timeout: float | None = None,  # Grace period for reconnects
+    markdown: bool | None = None,     # Serve Markdown to AI agents (experimental)
+    **kwargs,                         # Forwarded to FastAPI's @app.get()
+)
+```
+
+<Warning>
+**`response_timeout` is 3 seconds by default.** If your page builder awaits a slow database or API call, deliver the skeleton UI immediately and populate data with a background task. Raise the timeout only as a last resort.
+
+```python
+@ui.page('/dashboard', response_timeout=10)
+async def dashboard():
+    label = ui.label('Loading…')
+    async def load():
+        data = await fetch_data()
+        label.set_text(data)
+    background_tasks.create(load())
+```
+</Warning>
+
+---
+
+## Shared vs. Per-User Pages
+
+<CardGroup cols={2}>
+  <Card title="Module-level elements (shared)" icon="users">
+    UI created **outside** any `@ui.page` function lives at the module level and is shared between every connected user. The last writer wins — this is almost always a bug.
+
+    ```python
+    # ⚠️ Shared across ALL users
+    ui.label('Shared counter')
+    count = 0
+    ui.button('Increment', on_click=lambda: ...)
+    ```
+  </Card>
+  <Card title="@ui.page elements (per-user)" icon="user">
+    UI created **inside** a `@ui.page` function belongs to that visitor alone. Local variables, element references, and closures are all private to the page load.
+
+    ```python
+    @ui.page('/')
+    def index():
+        count = 0  # private to this user
+        label = ui.label(f'Count: {count}')
+        def increment():
+            nonlocal count
+            count += 1
+            label.set_text(f'Count: {count}')
+        ui.button('+1', on_click=increment)
+    ```
+  </Card>
+</CardGroup>
+
+---
+
+## Navigation
+
+The `ui.navigate` object provides all browser navigation actions. It works by sending JavaScript commands to the connected browser.
+
+```python
+from nicegui import ui
+
+# Navigate to a path or URL
+ui.navigate.to('/dashboard')
+ui.navigate.to('https://nicegui.io', new_tab=True)
+
+# You can also pass the page function itself
+@ui.page('/dashboard')
+def dashboard(): ...
+
+ui.navigate.to(dashboard)  # resolves the registered path automatically
+
+# Browser history controls
+ui.navigate.back()
+ui.navigate.forward()
+ui.navigate.reload()
+
+# Manipulate history without navigating
+ui.navigate.history.push('/new-path')      # pushState
+ui.navigate.history.replace('/new-path')   # replaceState
+```
+
+<Tip>
+Prefer `ui.link` with `target=` for static links — it renders a real `<a>` tag that works with keyboard navigation and right-click. Use `ui.navigate.to()` for **programmatic** navigation (e.g. after a form submission or login check).
+</Tip>
+
+---
+
+## Path Parameters
+
+NiceGUI uses FastAPI-style path parameters. Declare them in the path string and accept them as typed function parameters.
+
+```python
+from nicegui import ui
+
+@ui.page('/user/{user_id}')
+def user_page(user_id: int):
+    ui.label(f'User #{user_id}')
+
+@ui.page('/post/{slug}')
+def post_page(slug: str):
+    ui.label(f'Post: {slug}')
+```
+
+Query parameters are injected the same way:
+
+```python
+@ui.page('/search')
+def search(q: str = '', page: int = 1):
+    ui.label(f'Results for "{q}" – page {page}')
+    # /search?q=nicegui&page=2 → q='nicegui', page=2
+```
+
+---
+
+## `APIRouter` for Modular Apps
+
+`nicegui.APIRouter` extends FastAPI's `APIRouter` with a `.page()` method that mirrors `@ui.page`. Use it to group related routes into separate modules and then include them in your main app.
+
+```python
+# pages/admin.py
+from nicegui import APIRouter, ui
+
+router = APIRouter(prefix='/admin')
+
+@router.page('/')
+def admin_home():
+    ui.label('Admin dashboard')
+
+@router.page('/users')
+def admin_users():
+    ui.label('User management')
+```
+
+```python
+# main.py
+from nicegui import app, ui
+from pages.admin import router as admin_router
+
+app.include_router(admin_router)
+# Registers /admin/ and /admin/users
+
+ui.run()
+```
+
+<Note>
+The `prefix` on `APIRouter` is prepended automatically to every route defined inside it. `/admin` prefix + `/users` path → `/admin/users`.
+</Note>
+
+---
+
+## `ui.sub_pages()` for In-Page Navigation
+
+`ui.sub_pages()` renders different content inside a page based on the URL path, **without** a full page reload. It is NiceGUI's built-in client-side router for single-page application (SPA) patterns.
+
+```python
+from nicegui import ui
+from nicegui.page_arguments import PageArguments
+
+@ui.page('/')
+def main():
+    with ui.left_drawer():
+        ui.link('Home', '/home')
+        ui.link('About', '/about')
+
+    with ui.sub_pages():
+        # Each builder is matched against the current path
+        @ui.sub_pages.route('/home')
+        def home():
+            ui.label('Welcome home!')
+
+        @ui.sub_pages.route('/about')
+        def about():
+            ui.label('About this app.')
+
+        @ui.sub_pages.route('/item/{item_id}')
+        def item(args: PageArguments):
+            uid = args.path_parameters['item_id']
+            q   = args.query_parameters.get('ref', '')
+            ui.label(f'Item {uid} (ref: {q})')
+```
+
+### `PageArguments`
+
+When a sub-page builder is annotated with `PageArguments`, NiceGUI injects a fully populated object:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `path` | `str` | The sub-path that matched |
+| `path_parameters` | `dict[str, str]` | Extracted `{param}` values |
+| `query_parameters` | `QueryParams` | URL query string values |
+| `remaining_path` | `str` | Unmatched tail (for wildcard routes) |
+| `data` | `dict[str, Any]` | Custom data passed to `sub_pages` |
+| `frame` | `SubPages` | The `ui.sub_pages` element itself |
+
+---
+
+## Lifecycle Events
+
+Hook into the application lifecycle using `app` callbacks. These run once for the whole server process, not per page load.
+
+```python
+from nicegui import app, ui
+
+@app.on_startup
+async def startup():
+    print('Server started — connect to DB, warm caches…')
+
+@app.on_shutdown
+async def shutdown():
+    print('Server stopping — flush queues, close connections…')
+
+@app.on_connect
+def on_connect(client):
+    print(f'Client connected: {client.id}')
+
+@app.on_disconnect
+def on_disconnect(client):
+    print(f'Client disconnected: {client.id}')
+
+@app.on_exception
+def on_exception(e: Exception):
+    print(f'Unhandled exception: {e}')
+
+ui.run()
+```
+
+<Accordion title="Per-page exception handler">
+Use `ui.on_exception` inside a `@ui.page` function to handle exceptions that occur within that specific page's context (including background tasks spawned with `context=ui.context.client`):
+
+```python
+@ui.page('/dashboard')
+def dashboard():
+    ui.on_exception(lambda e: ui.notify(f'Error: {e}', type='negative'))
+    # page content …
+```
+</Accordion>
+
+---
+
+## Complete Multi-Page Example
+
+<Steps>
+  <Step title="Define pages in separate modules">
+    ```python
+    # pages/home.py
+    from nicegui import ui
+
+    @ui.page('/home')
+    def home():
+        ui.label('Home').classes('text-2xl font-bold')
+        ui.button('Go to Settings', on_click=lambda: ui.navigate.to('/settings'))
+    ```
+
+    ```python
+    # pages/settings.py
+    from nicegui import ui
+
+    @ui.page('/settings')
+    def settings():
+        ui.label('Settings').classes('text-2xl font-bold')
+        ui.button('Back', on_click=ui.navigate.back)
+    ```
+  </Step>
+  <Step title="Assemble in main.py">
+    ```python
+    # main.py
+    from nicegui import app, ui
+    import pages.home     # importing triggers @ui.page registration
+    import pages.settings
+
+    @ui.page('/')
+    def root():
+        ui.navigate.to('/home')
+
+    app.on_startup(lambda: print('App ready'))
+
+    ui.run(title='My App', storage_secret='change-me')
+    ```
+  </Step>
+  <Step title="Run and navigate">
+    ```bash
+    python main.py
+    # Opens http://localhost:8080 → redirects to /home
+    ```
+  </Step>
+</Steps>

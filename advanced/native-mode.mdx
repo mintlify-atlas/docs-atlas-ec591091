@@ -1,0 +1,236 @@
+---
+title: "Native Desktop Mode for NiceGUI Applications"
+sidebarTitle: "Native Mode"
+description: "Run NiceGUI as a desktop app with a native window using pywebview — configure window size, title, frameless mode, and platform-specific options."
+---
+
+NiceGUI can run entirely inside a native OS window instead of a browser tab. Under the hood it uses [pywebview](https://pywebview.app/) to open a platform-native window that embeds a local web engine and automatically points it at the NiceGUI server running on localhost. No browser installation is required by the end user, and the UI looks and feels like any other desktop application.
+
+## Prerequisites
+
+Native mode requires the `pywebview` package. Install it via the `native` extras of NiceGUI:
+
+```bash
+pip install "nicegui[native]"
+```
+
+<Note>
+  `pywebview` uses the OS-provided web engine: **WebView2** on Windows, **WebKit** on macOS, and **WebKitGTK** or **Qt WebEngine** on Linux. Make sure your OS engine supports ES modules (Chrome 89+ feature set). On older Linux systems you may need to install `gir1.2-webkit2-4.1` or switch to a Qt-based backend.
+</Note>
+
+---
+
+## Enabling Native Mode
+
+Pass `native=True` to `ui.run()`. NiceGUI automatically picks an open port, hides the browser-open behaviour, and launches a pywebview window:
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.label('Running as a desktop app!')
+    ui.button('Close', on_click=app.shutdown)
+
+ui.run(native=True)
+```
+
+### Window size shorthand
+
+`window_size` is a convenience parameter that also activates native mode:
+
+```python
+from nicegui import ui
+
+ui.run(window_size=(1280, 800))   # implies native=True
+```
+
+### Fullscreen and frameless shortcuts
+
+```python
+from nicegui import ui
+
+# Full-screen kiosk mode
+ui.run(fullscreen=True)
+
+# Borderless/frameless window (useful for splash screens)
+ui.run(frameless=True)
+```
+
+All three shorthands (`window_size`, `fullscreen`, `frameless`) automatically set `native=True` internally.
+
+---
+
+## Configuring the Window with `app.native`
+
+More fine-grained control lives on the `app.native` object — a `NativeConfig` dataclass with three dictionaries that map directly to pywebview's API.
+
+### `app.native.window_args`
+
+Key/value pairs forwarded to `webview.create_window()`. Set these **before** `ui.run()`:
+
+```python
+from nicegui import app, ui
+
+app.native.window_args.update({
+    'title': 'My Desktop App',
+    'width': 1024,
+    'height': 768,
+    'resizable': True,
+    'min_size': (640, 480),
+    'background_color': '#1a1a2e',
+    'on_top': False,
+    'confirm_close': True,   # ask user before closing
+})
+
+@ui.page('/')
+def index():
+    ui.label('Hello from the native window!')
+
+ui.run(native=True)
+```
+
+### `app.native.settings`
+
+Forwarded to `webview.settings.update()`. Use it for engine-level options:
+
+```python
+from nicegui import app, ui
+
+app.native.settings.update({
+    'OPEN_DEVTOOLS_IN_DEBUG': True,   # open devtools automatically in debug builds
+    'ALLOW_DOWNLOADS': True,
+})
+
+ui.run(native=True)
+```
+
+### `app.native.start_args`
+
+Extra keyword arguments forwarded to `webview.start()`:
+
+```python
+from nicegui import app, ui
+
+app.native.start_args.update({
+    'debug': True,            # enable pywebview debug mode
+    'http_server': False,     # use file:// instead of local http server for assets
+})
+
+ui.run(native=True)
+```
+
+---
+
+## Accessing the Main Window at Runtime
+
+Once the application is running, `app.native.main_window` is a `WindowProxy` that lets you call pywebview window methods from Python (e.g. resize, move, toggle fullscreen):
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    async def go_fullscreen():
+        if app.native.main_window:
+            app.native.main_window.toggle_fullscreen()
+
+    ui.button('Toggle Fullscreen', on_click=go_fullscreen)
+
+ui.run(native=True)
+```
+
+`WindowProxy` methods are dispatched asynchronously via a multiprocessing queue so they are safe to call from async page handlers.
+
+---
+
+## Native Window Events
+
+Subscribe to pywebview window events (shown, loaded, minimized, maximized, resized, moved, closed, drop) via `app.native.on()`:
+
+```python
+from nicegui import app, ui
+from nicegui.events import NativeEventArguments
+
+def on_resized(e: NativeEventArguments) -> None:
+    print(f'Window resized to {e.args["width"]}×{e.args["height"]}')
+
+app.native.on('resized', on_resized)
+app.native.on('closed', lambda: print('Window closed'))
+
+ui.run(native=True)
+```
+
+---
+
+## Native vs Browser Mode Differences
+
+| Feature | Browser mode | Native mode |
+|---|---|---|
+| Port | 8080 (default) | Auto-detected open port |
+| `show=` | Opens browser tab | Ignored |
+| `reload=` | Supported | Spawns a separate process |
+| Storage | Full `app.storage` | Full `app.storage` |
+| Multiple windows | Multiple tabs | `app.native.main_window` only |
+| File drag-and-drop | Browser file API | pywebview `drop` event |
+| `app.shutdown()` | Stops server | Destroys native window first |
+| DevTools | Browser F12 | `app.native.settings['OPEN_DEVTOOLS_IN_DEBUG']` |
+
+---
+
+## Platform-specific Notes
+
+<Accordion title="Windows">
+  - NiceGUI uses **WebView2** (Chromium-based). Ensure the WebView2 Runtime is installed — it ships with Windows 11 and recent Windows 10 updates, but older machines may need the [WebView2 Runtime installer](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+  - To set a custom window icon (`.ico`) pass the path as `favicon=` to `ui.run()`: NiceGUI automatically applies it as the native window icon on Windows.
+  - Ctrl+C in the console properly terminates the window process.
+</Accordion>
+
+<Accordion title="macOS">
+  - NiceGUI uses **WebKit** (Safari engine). All modern macOS versions include it.
+  - Code signing is required for distribution — wrap the packaged app with `py2app` or `PyInstaller` and sign the bundle.
+  - Frameless windows work but dragging must be implemented via JavaScript if you remove the native title bar.
+</Accordion>
+
+<Accordion title="Linux">
+  - The default backend is **WebKitGTK** (`libwebkit2gtk`). Install it with your package manager, e.g. `sudo apt install gir1.2-webkit2-4.1`.
+  - For embedded systems or environments without GTK, use the Qt backend: `pip install pywebview[qt]`.
+  - Wayland compositors may need `PYWEBVIEW_BACKEND=gtk` or `PYWEBVIEW_BACKEND=qt` set explicitly.
+</Accordion>
+
+---
+
+## Full Example
+
+```python
+from nicegui import app, ui
+
+# Window configuration — set before ui.run()
+app.native.window_args.update({
+    'title':    'NiceGUI Desktop',
+    'width':    900,
+    'height':   600,
+    'resizable': True,
+    'confirm_close': True,
+})
+
+@ui.page('/')
+def index():
+    with ui.column().classes('w-full h-screen items-center justify-center gap-4'):
+        ui.label('Native Desktop Application').classes('text-3xl font-bold')
+
+        with ui.row():
+            ui.button(
+                'Toggle Fullscreen',
+                on_click=lambda: app.native.main_window and
+                                 app.native.main_window.toggle_fullscreen(),
+            )
+            ui.button('Quit', on_click=app.shutdown).props('color=negative')
+
+if __name__ in {'__main__', '__mp_main__'}:
+    ui.run(native=True, reload=False)
+```
+
+<Tip>
+  Use `reload=False` for native mode in production — hot-reload spawns a subprocess that opens a second window. During development you can use `reload=True` but be aware of the extra window.
+</Tip>

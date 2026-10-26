@@ -1,0 +1,316 @@
+---
+title: "context — Current Client and Slot Access"
+sidebarTitle: "context"
+description: "API reference for NiceGUI's context object, the Client class, slot stack management, and ElementFilter for finding elements on a page."
+---
+
+`nicegui.context` is a thread-local / task-local object that always points to the **currently active client and slot**. NiceGUI uses an internal slot stack to track which element container is "open" at any moment — every `with` block on an element pushes a new slot, and exiting pops it. The `context` object gives you access to the top of that stack from anywhere in your code.
+
+```python
+from nicegui import context, ui
+
+@ui.page('/')
+def index():
+    ui.label(f'Client ID: {context.client.id}')
+```
+
+## Import
+
+```python
+from nicegui import context
+```
+
+---
+
+## `context.slot`
+
+```python
+@property
+def slot(self) -> Slot
+```
+
+Returns the currently active `Slot` — the innermost open element container. All elements you create at this point in code are added as children of this slot's parent element.
+
+```python
+from nicegui import context, ui
+
+@ui.page('/')
+def index():
+    with ui.card():
+        current = context.slot        # Slot inside the card
+        ui.label(f'Slot name: {current.name}')
+```
+
+<Warning>
+Accessing `context.slot` from a background task that has no associated UI context raises a `RuntimeError`:
+
+> *The current slot cannot be determined because the slot stack for this task is empty.*
+
+To fix this, enter the desired container explicitly with `with my_container:` before creating elements.
+</Warning>
+
+---
+
+## `context.slot_stack`
+
+```python
+@property
+def slot_stack(self) -> list[Slot]
+```
+
+Returns the full slot stack for the current asyncio task — a list of `Slot` objects from outermost to innermost. The last element is the same as `context.slot`.
+
+Reading `slot_stack` when no UI context exists and `ui.run()` has not yet been called activates NiceGUI's **script mode**: a pseudo-client is created so that elements defined at module level survive until `ui.run()` is called.
+
+---
+
+## `context.client`
+
+```python
+@property
+def client(self) -> Client
+```
+
+Returns the `Client` object representing the current visitor's browser tab. This is the primary way to access per-user state, run JavaScript, and await connection events.
+
+```python
+from nicegui import context, ui
+
+@ui.page('/')
+async def index():
+    client = context.client
+    await client.connected()      # wait for WebSocket handshake
+    result = await client.run_javascript('navigator.userAgent')
+    ui.label(f'User-Agent: {result}')
+```
+
+### Using `context.client` in background tasks
+
+Background tasks do not automatically inherit the slot context. Pass a reference to the client explicitly and use `with client:` to restore the context:
+
+```python
+import asyncio
+from nicegui import context, ui
+
+@ui.page('/')
+def index():
+    client = context.client   # capture before spawning task
+
+    async def update_label():
+        await asyncio.sleep(2)
+        with client:          # restore context so new elements attach correctly
+            ui.label('Updated after 2 s')
+
+    ui.timer(0, update_label, once=True)
+```
+
+---
+
+## `Client` class
+
+The `Client` class represents one browser tab connected to a NiceGUI page. Each `@ui.page` visitor gets a private `Client` instance with its own element tree.
+
+### Key attributes
+
+| Attribute | Type | Description |
+|---|---|---|
+| `client.id` | `str` | UUID that uniquely identifies this client. |
+| `client.page` | `page` | The `@ui.page` descriptor this client is serving. |
+| `client.elements` | `dict[int, Element]` | All live elements keyed by their integer ID. |
+| `client.ip` | `str` | IP address of the connecting browser. |
+| `client.tab_id` | `str \| None` | Socket.IO tab identifier; `None` before first connection. |
+| `client.is_deleted` | `bool` | `True` if the client has been permanently deleted. |
+| `client.has_socket_connection` | `bool` | `True` while the browser tab is actively connected. |
+| `client.storage` | `ObservableDict` | Ephemeral in-memory dict scoped to this client. |
+
+### `client.connected()`
+
+```python
+async def connected(timeout: float | None = None) -> None
+```
+
+Await until the browser establishes its WebSocket connection. Required before calling `run_javascript()` from an async page builder.
+
+```python
+@ui.page('/')
+async def index():
+    await context.client.connected(timeout=5.0)
+    await context.client.run_javascript('console.log("hello")')
+```
+
+<ParamField path="timeout" type="float | None" default="None">
+  Maximum seconds to wait. Raises `ClientConnectionTimeout` if the browser does not connect in time.
+</ParamField>
+
+### `client.disconnected()`
+
+```python
+async def disconnected() -> None
+```
+
+Await until the browser tab disconnects (or its client is deleted). Useful for cleanup after a user leaves a page:
+
+```python
+@ui.page('/session')
+async def session():
+    ui.label('Active session')
+    await context.client.disconnected()
+    print('User left the page')
+```
+
+### `client.run_javascript()`
+
+```python
+def run_javascript(code: str, *, timeout: float = 1.0) -> AwaitableResponse
+```
+
+Execute JavaScript in the connected browser. If awaited, returns the result of the expression.
+
+```python
+result = await context.client.run_javascript('2 + 2')
+print(result)  # 4
+```
+
+### `client.open()`
+
+```python
+def open(target: Callable | str, new_tab: bool = False) -> None
+```
+
+Navigate the browser to a different URL or page. Prefer `ui.navigate.to()` for most use cases.
+
+### `client.on_connect()` / `client.on_disconnect()` / `client.on_delete()`
+
+Per-client lifecycle hooks that mirror `app.on_connect()` but only fire for this specific client.
+
+```python
+@ui.page('/')
+def index():
+    client = context.client
+    client.on_connect(lambda: ui.notify('You reconnected!'))
+    client.on_delete(lambda: print(f'Client {client.id} gone'))
+```
+
+---
+
+## Slot management
+
+`Slot` is the internal class that backs every element container. When you write `with ui.card():`, NiceGUI calls `card.default_slot.__enter__()` which pushes the slot onto the current task's stack.
+
+```python
+from nicegui.slot import Slot
+
+stack = Slot.get_stack()   # list[Slot] for current asyncio task
+```
+
+### How the stack works
+
+```python
+# Stack: []
+with ui.card() as card:
+    # Stack: [card.default_slot]
+    with ui.row():
+        # Stack: [card.default_slot, row.default_slot]
+        ui.label('Hello')
+    # Stack: [card.default_slot]
+# Stack: []
+```
+
+Every NiceGUI element creation (`ui.label(...)`, `ui.button(...)`, etc.) reads the top of the stack to determine its parent. If the stack is empty outside a page context, NiceGUI enters script mode and creates a pseudo root client.
+
+---
+
+## `ElementFilter`
+
+`ElementFilter` lets you search the element tree of the current page using a fluent query interface. It is exposed as `ui.element_filter()` and the `ElementFilter` class directly.
+
+```python
+from nicegui import ElementFilter, ui
+from nicegui.elements.button import Button
+
+@ui.page('/')
+def index():
+    ui.button('Save')
+    ui.button('Cancel')
+    ui.label('Status')
+
+    # Find all Button elements
+    buttons = list(ElementFilter(kind=Button))
+    print(len(buttons))  # 2
+```
+
+### Constructor
+
+```python
+ElementFilter(
+    *,
+    kind: type[T] | None = None,
+    marker: str | list[str] | None = None,
+    content: str | list[str] | None = None,
+    local_scope: bool | None = None,
+    only_visible: bool = False,
+)
+```
+
+<ParamField path="kind" type="type[T] | None" default="None">
+  Filter by element class. The iterator yields elements typed as `T`. For example, `kind=Button` only yields `Button` instances.
+</ParamField>
+
+<ParamField path="marker" type="str | list[str] | None" default="None">
+  Filter by element markers added via `.mark('name')`. A single space-separated string or a list — all markers must be present.
+</ParamField>
+
+<ParamField path="content" type="str | list[str] | None" default="None">
+  Filter by element content (text, label, value, source, etc.). Partial matches are sufficient. Pass a list to require all strings to match.
+</ParamField>
+
+<ParamField path="local_scope" type="bool | None" default="None">
+  When `True`, search only within the current slot's subtree. When `False` (or `None` with the default `ElementFilter.DEFAULT_LOCAL_SCOPE = False`), search the entire page.
+</ParamField>
+
+<ParamField path="only_visible" type="bool" default="False">
+  Skip elements (and their subtrees) that are not currently visible.
+</ParamField>
+
+### Fluent filter methods
+
+```python
+# Chain filters with .within(), .exclude(), .not_within()
+results = (
+    ElementFilter(kind=Button)
+    .within(marker='toolbar')
+    .exclude(kind=IconButton)
+)
+
+for btn in results:
+    btn.disable()
+```
+
+| Method | Description |
+|---|---|
+| `.within(kind=..., marker=..., instance=...)` | Keep only elements whose ancestors match the given kind, marker, or instance. |
+| `.not_within(kind=..., marker=..., instance=...)` | Remove elements that have an ancestor matching the given kind, marker, or instance. |
+| `.exclude(kind=..., marker=..., content=...)` | Remove elements matching the given kind, marker, or content. |
+| `.classes(add, remove, replace)` | Apply CSS class changes to all matched elements. |
+| `.style(add, remove, replace)` | Apply CSS style changes to all matched elements. |
+| `.props(add, remove)` | Apply Quasar prop changes to all matched elements. |
+
+<Note>
+`ElementFilter` is **lazy** — it scans the element tree each time you iterate it, not when it is constructed. This means it always reflects the current state of the page.
+</Note>
+
+### Practical example: bulk-disable inputs
+
+```python
+from nicegui import ElementFilter, ui
+from nicegui.elements.input import Input
+
+@ui.page('/form')
+def form():
+    with ui.column().mark('form-fields'):
+        ui.input('Name')
+        ui.input('Email')
+    ui.button('Lock', on_click=lambda: (
+        ElementFilter(kind=Input).within(marker='form-fields').props('disable')
+    ))
+```

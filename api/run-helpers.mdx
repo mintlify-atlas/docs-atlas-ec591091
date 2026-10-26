@@ -1,0 +1,649 @@
+---
+title: "NiceGUI Run Helpers — Async, JS, and UI Utilities"
+sidebarTitle: "Run Helpers"
+description: "Reference for NiceGUI's async helpers: run.io_bound, run.cpu_bound, background_tasks, notify, download, clipboard, navigate, ElementFilter, and more."
+---
+
+NiceGUI runs on a single asyncio event loop shared by all connected users. Blocking that loop — even for a fraction of a second — freezes the entire application. This page documents the tools NiceGUI provides to offload work safely, interact with the browser, and manipulate the page programmatically.
+
+---
+
+## `run.io_bound` and `run.cpu_bound`
+
+Import from `nicegui.run` (or `from nicegui import run`).
+
+### `run.io_bound(callback, *args, **kwargs)`
+
+Runs a blocking I/O function in a thread pool executor. Returns an awaitable that resolves to the function's return value.
+
+<ParamField path="callback" type="Callable" required>
+  The blocking function to run in a separate thread.
+</ParamField>
+<ParamField path="*args" type="Any">
+  Positional arguments forwarded to `callback`.
+</ParamField>
+<ParamField path="**kwargs" type="Any">
+  Keyword arguments forwarded to `callback`.
+</ParamField>
+
+```python
+import requests
+from nicegui import run, ui
+
+@ui.page('/')
+async def index():
+    spinner = ui.spinner()
+    response = await run.io_bound(requests.get, 'https://api.example.com/data', timeout=5)
+    spinner.delete()
+    ui.label(response.json()['message'])
+
+ui.run()
+```
+
+<Note>
+`run.io_bound` currently returns `None` instead of raising `CancelledError` when the call is cancelled or the app shuts down. NiceGUI 4.0 will change this to raise `CancelledError`.
+</Note>
+
+---
+
+### `run.cpu_bound(callback, *args, **kwargs)`
+
+Runs a CPU-intensive function in a **separate process** (process pool executor). The function and its arguments must be picklable — use module-level functions rather than lambdas or closures.
+
+<ParamField path="callback" type="Callable" required>
+  The CPU-bound function to run in a subprocess. Must be picklable (module-level function or static method).
+</ParamField>
+<ParamField path="*args" type="Any">
+  Positional arguments forwarded to `callback`. Must be picklable.
+</ParamField>
+<ParamField path="**kwargs" type="Any">
+  Keyword arguments forwarded to `callback`. Must be picklable.
+</ParamField>
+
+```python
+from nicegui import run, ui
+
+def expensive_computation(n: int) -> int:
+    return sum(i * i for i in range(n))
+
+@ui.page('/')
+async def index():
+    result = await run.cpu_bound(expensive_computation, 10_000_000)
+    ui.label(f'Result: {result}')
+
+ui.run()
+```
+
+<Warning>
+On Linux, the process pool defaults to the `fork` start method (the platform default up to Python 3.13). This is unsafe in a threaded process. Set `run.process_pool_start_method = 'spawn'` before `ui.run()` to opt into the safer spawn method (which will become the default in NiceGUI 4.0).
+
+```python
+from nicegui import run
+run.process_pool_start_method = 'spawn'
+ui.run()
+```
+</Warning>
+
+---
+
+## `background_tasks.create`
+
+```python
+from nicegui import background_tasks
+```
+
+### `background_tasks.create(awaitable, *, name='unnamed task', handle_exceptions=True, context=None)`
+
+Schedules a coroutine as a fire-and-forget background task. Unlike bare `asyncio.create_task()`, this keeps a strong reference to the task (preventing GC cancellation) and routes unhandled exceptions through NiceGUI's exception handler.
+
+<ParamField path="awaitable" type="Awaitable[Any]" required>
+  The coroutine or awaitable to run as a background task.
+</ParamField>
+<ParamField path="name" type="str" default="'unnamed task'">
+  A descriptive name for the task, useful for debugging.
+</ParamField>
+<ParamField path="handle_exceptions" type="bool" default="True">
+  If `True`, unhandled exceptions are forwarded to `app.on_exception` handlers (and to the page's `ui.on_exception` if `context` is given).
+</ParamField>
+<ParamField path="context" type="AbstractContextManager | None" default="None">
+  A container element or `ui.context.client`. Elements created inside the task land in this container, and exceptions also reach the page's `ui.on_exception` handlers. Added in v3.18.0.
+</ParamField>
+
+```python
+from nicegui import background_tasks, ui
+
+@ui.page('/')
+async def index():
+    label = ui.label('Working...')
+
+    async def long_task():
+        import asyncio
+        await asyncio.sleep(3)
+        label.set_text('Done!')
+
+    background_tasks.create(long_task(), name='long-task')
+
+ui.run()
+```
+
+<Note>
+Always use `background_tasks.create()` instead of `asyncio.create_task()` or `asyncio.ensure_future()`. Bare task references may be garbage-collected mid-execution, silently cancelling the task.
+</Note>
+
+---
+
+## `ui.run_javascript`
+
+### `ui.run_javascript(code, *, timeout=1.0)`
+
+Executes arbitrary JavaScript code in the browser. If awaited, returns the result of the last expression in `code`. If not awaited, the code runs fire-and-forget.
+
+Internally calls `await client.connected()` before executing, so it is safe to call even before the WebSocket is established — but this waiting period is not covered by `timeout`.
+
+<ParamField path="code" type="str" required>
+  JavaScript code to execute. To access a NiceGUI element by ID, use the `getElement(id)` or `getHtmlElement(id)` helper functions (added in v2.9.0).
+</ParamField>
+<ParamField path="timeout" type="float" default="1.0">
+  Timeout in seconds to wait for the JavaScript result (only relevant when awaiting). Does not cover the time waiting for the client to connect.
+</ParamField>
+
+**Returns:** An `AwaitableResponse`. Awaiting it gives the JS expression result, or `None` if the client was deleted.
+
+<CodeGroup>
+
+```python Fire-and-forget
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Set title', on_click=lambda: ui.run_javascript('document.title = "New Title"'))
+
+ui.run()
+```
+
+```python Awaited result
+from nicegui import ui
+
+@ui.page('/')
+async def index():
+    async def get_width():
+        width = await ui.run_javascript('return window.innerWidth')
+        ui.label(f'Window width: {width}px')
+
+    ui.button('Get width', on_click=get_width)
+
+ui.run()
+```
+
+</CodeGroup>
+
+---
+
+## `ui.notify`
+
+### `ui.notify(message, *, position='bottom', close_button=False, type=None, color=None, multi_line=False, **kwargs)`
+
+Displays a toast notification on the screen.
+
+<ParamField path="message" type="Any" required>
+  The notification text. Converted to `str` automatically.
+</ParamField>
+<ParamField path="position" type="str" default="'bottom'">
+  Screen position. One of `'top-left'`, `'top-right'`, `'bottom-left'`, `'bottom-right'`, `'top'`, `'bottom'`, `'left'`, `'right'`, `'center'`.
+</ParamField>
+<ParamField path="close_button" type="bool | str" default="False">
+  If `True`, shows a generic close button. If a string, uses it as the button label.
+</ParamField>
+<ParamField path="type" type="str | None" default="None">
+  Notification type. One of `'positive'`, `'negative'`, `'warning'`, `'info'`, `'ongoing'`. Controls the icon and color.
+</ParamField>
+<ParamField path="color" type="str | None" default="None">
+  Custom color (Quasar color name, Tailwind name, or CSS value). Overrides the `type` color.
+</ParamField>
+<ParamField path="multi_line" type="bool" default="False">
+  Enable multi-line display for longer messages.
+</ParamField>
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments passed directly to [Quasar's Notify API](https://quasar.dev/quasar-plugins/notify#notify-api). For example, `timeout=2000`, `group='save'`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Save', on_click=lambda: ui.notify('Saved!', type='positive'))
+    ui.button('Error', on_click=lambda: ui.notify('Failed!', type='negative', position='top'))
+    ui.button('Warning', on_click=lambda: ui.notify('Watch out', type='warning', close_button='Dismiss'))
+
+ui.run()
+```
+
+<Tip>
+For persistent notifications that can be updated later (e.g. a progress notification), use `ui.notification()` instead. It returns an object whose `.message`, `.type`, and `.spinner` properties can be changed after creation.
+</Tip>
+
+---
+
+## `ui.download`
+
+### `ui.download(src, filename=None, media_type='')`
+
+Triggers a file download in the browser. Automatically dispatches to the appropriate method based on the type of `src`.
+
+<ParamField path="src" type="str | Path | bytes" required>
+  The content to download. Accepts:
+  - A `bytes` object — raw content sent directly.
+  - A `Path` or existing local file path — served as a one-use static file.
+  - A URL string (relative or absolute) — browser navigates to it.
+</ParamField>
+<ParamField path="filename" type="str | None" default="None">
+  The suggested filename shown in the browser's download dialog. Defaults to the file name from the path or URL.
+</ParamField>
+<ParamField path="media_type" type="str" default="''">
+  MIME type hint for the browser. Only used when `src` is bytes or a local file path.
+</ParamField>
+
+<CodeGroup>
+
+```python Download a local file
+from pathlib import Path
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Download report', on_click=lambda: ui.download(
+        Path('reports/monthly.pdf'), filename='monthly-report.pdf'
+    ))
+
+ui.run()
+```
+
+```python Download raw bytes
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    def download_csv():
+        content = b'name,age\nAlice,30\nBob,25'
+        ui.download(content, filename='data.csv', media_type='text/csv')
+
+    ui.button('Export CSV', on_click=download_csv)
+
+ui.run()
+```
+
+</CodeGroup>
+
+Additional lower-level methods on the `ui.download` object:
+
+- **`ui.download.file(path, filename=None, media_type='')`** — download from a local path.
+- **`ui.download.from_url(url, filename=None, media_type='')`** — download from a relative URL.
+- **`ui.download.content(content, filename=None, media_type='')`** — download from raw bytes or a string.
+
+<Warning>
+Absolute URLs in `ui.download.from_url()` may not trigger a download for certain file types (images, PDFs) because the browser may open them instead. Use `ui.navigate.to(url, new_tab=True)` for absolute URLs, or serve the file via a relative NiceGUI route.
+</Warning>
+
+---
+
+## `ui.clipboard`
+
+### `ui.clipboard.write(text)`
+
+Writes text to the system clipboard using the browser's Clipboard API.
+
+<ParamField path="text" type="str" required>
+  The text to copy to the clipboard.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Copy link', on_click=lambda: ui.clipboard.write('https://nicegui.io'))
+
+ui.run()
+```
+
+### `await ui.clipboard.read()`
+
+Reads text from the clipboard. Must be awaited. Returns `None` if the Clipboard API is unavailable.
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+async def index():
+    async def paste():
+        text = await ui.clipboard.read()
+        ui.notify(f'Clipboard: {text}')
+
+    ui.button('Paste', on_click=paste)
+
+ui.run()
+```
+
+<Note>
+The Clipboard API only works in **secure contexts** (HTTPS or localhost). It will log a warning and return `None` in plain HTTP contexts.
+</Note>
+
+---
+
+## `ui.update`
+
+### `ui.update(*elements)`
+
+Forces one or more elements to push their current state to the client immediately. Normally not needed — bindings and property setters trigger updates automatically — but useful when you have mutated nested data that NiceGUI can't observe automatically.
+
+<ParamField path="*elements" type="Element" required>
+  One or more NiceGUI element instances to update.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    label = ui.label('Hello')
+    label.text = 'Updated!'
+    ui.update(label)  # push the change to the browser
+
+ui.run()
+```
+
+---
+
+## HTML injection
+
+### `ui.add_head_html(code, *, shared=False)`
+
+Injects raw HTML into the `<head>` of the current page. When `shared=True`, the code is added to every page's head.
+
+<ParamField path="code" type="str" required>
+  Raw HTML string to insert into `<head>`.
+</ParamField>
+<ParamField path="shared" type="bool" default="False">
+  If `True`, the HTML is added to all pages app-wide instead of just the current page.
+</ParamField>
+
+### `ui.add_body_html(code, *, shared=False)`
+
+Injects raw HTML into the `<body>` of the current page (before the NiceGUI app mount point).
+
+<ParamField path="code" type="str" required>
+  Raw HTML string to insert into `<body>`.
+</ParamField>
+<ParamField path="shared" type="bool" default="False">
+  If `True`, the HTML is added to all pages app-wide.
+</ParamField>
+
+### `ui.add_css(content, *, shared=False)`
+
+Injects CSS style definitions into the page head.
+
+<ParamField path="content" type="str | Path" required>
+  CSS content as a string, or a `Path` to a `.css` file.
+</ParamField>
+<ParamField path="shared" type="bool" default="False">
+  If `True`, the styles are applied to all pages.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.add_css('.my-button { border-radius: 12px; }')
+    ui.add_head_html('<link rel="preconnect" href="https://fonts.googleapis.com">')
+    ui.button('Styled').classes('my-button')
+
+ui.run()
+```
+
+<Warning>
+Prefer `.classes()` (Tailwind/Quasar) and `ui.query()` over `ui.add_head_html` or `ui.add_css` for styling elements. Use HTML injection only for things the Python API cannot handle, such as loading external fonts or third-party scripts.
+</Warning>
+
+---
+
+## `ElementFilter`
+
+`ElementFilter` provides a declarative way to query the current page's element tree. It is lazy — filtering is applied at iteration time, not at construction.
+
+```python
+from nicegui.element_filter import ElementFilter
+```
+
+### `ElementFilter(*, kind=None, marker=None, content=None, local_scope=None, only_visible=False)`
+
+<ParamField path="kind" type="type[Element] | None" default="None">
+  Filter by element class. The iterator will yield only instances of this type.
+</ParamField>
+<ParamField path="marker" type="str | list[str] | None" default="None">
+  Filter by marker string(s). A single string may contain multiple markers separated by whitespace. All specified markers must be present.
+</ParamField>
+<ParamField path="content" type="str | list[str] | None" default="None">
+  Filter by element content (text, label, icon, value, source, etc.). Partial matches are sufficient. All specified strings must match.
+</ParamField>
+<ParamField path="local_scope" type="bool | None" default="None">
+  If `True`, only elements within the current slot scope are returned. Defaults to `ElementFilter.DEFAULT_LOCAL_SCOPE` (which defaults to `False`, meaning the whole page is searched).
+</ParamField>
+<ParamField path="only_visible" type="bool" default="False">
+  If `True`, filters out elements (and their descendants) that have `visible=False`.
+</ParamField>
+
+**Fluent refinement methods** (all return `Self` for chaining):
+
+- `.within(*, kind=None, marker=None, instance=None)` — restrict to elements that have a matching ancestor.
+- `.not_within(*, kind=None, marker=None, instance=None)` — exclude elements that have a matching ancestor.
+- `.exclude(*, kind=None, marker=None, content=None)` — exclude elements matching the criteria.
+- `.classes(add=None, *, remove=None, replace=None)` — apply class changes to all matched elements.
+- `.style(add=None, *, remove=None, replace=None)` — apply style changes to all matched elements.
+- `.props(add=None, *, remove=None)` — apply prop changes to all matched elements.
+
+```python
+from nicegui import ui
+from nicegui.element_filter import ElementFilter
+
+@ui.page('/')
+def index():
+    ui.label('Hello').mark('greeting')
+    ui.label('World').mark('greeting')
+    ui.button('Click me').mark('action')
+
+    # Iterate over all elements with the 'greeting' marker
+    for label in ElementFilter(marker='greeting'):
+        label.classes('text-xl font-bold')
+
+    # Apply props to all buttons
+    ElementFilter(kind=ui.button).props('unelevated')
+
+ui.run()
+```
+
+<Tip>
+`ElementFilter` is particularly useful in tests (with `User` fixtures) and in shared UI utilities that need to locate elements without holding direct references.
+</Tip>
+
+---
+
+## `ui.navigate`
+
+Navigation functions that control the browser's history and URL.
+
+### `ui.navigate.to(target, new_tab=False)`
+
+Navigates the browser to a different page, URL, or scrolls to an element anchor.
+
+<ParamField path="target" type="Callable | str | Element" required>
+  Destination. Accepts:
+  - A `str` URL or path (absolute or relative to the base URL).
+  - A NiceGUI `Element` — scrolls to the element's anchor (`#html_id`).
+  - A `@ui.page` decorated function — navigates to that page's registered route.
+</ParamField>
+<ParamField path="new_tab" type="bool" default="False">
+  If `True`, opens the target in a new browser tab. Note: browsers may block new tabs opened without direct user interaction.
+</ParamField>
+
+### `ui.navigate.back()`
+
+Navigates back in the browser history. Equivalent to the browser's Back button.
+
+### `ui.navigate.forward()`
+
+Navigates forward in the browser history. Equivalent to the browser's Forward button.
+
+### `ui.navigate.reload()`
+
+Reloads the current page. Equivalent to the browser's Reload button.
+
+### `ui.navigate.history.push(url)`
+
+Pushes a URL to the browser history stack without navigating.
+
+<ParamField path="url" type="str" required>
+  Relative or absolute URL to push to the history stack.
+</ParamField>
+
+### `ui.navigate.history.replace(url)`
+
+Replaces the current entry in the browser history stack without navigating.
+
+<ParamField path="url" type="str" required>
+  Relative or absolute URL to use as the replacement.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    ui.button('Go to docs', on_click=lambda: ui.navigate.to('https://nicegui.io', new_tab=True))
+    ui.button('Back', on_click=ui.navigate.back)
+    ui.button('Reload', on_click=ui.navigate.reload)
+
+ui.run()
+```
+
+---
+
+## `ui.page_title`
+
+### `ui.page_title(title)`
+
+Sets the browser tab title for the current client. Can be called at any time after the page is built — it will run `document.title = ...` in JavaScript if the response has already been sent.
+
+<ParamField path="title" type="str" required>
+  The new page title.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    def change_title():
+        ui.page_title('Updated Title')
+        ui.notify('Title changed!')
+
+    ui.page_title('My App')
+    ui.button('Change title', on_click=change_title)
+
+ui.run()
+```
+
+---
+
+## `ui.status_code`
+
+### `ui.status_code(code)`
+
+Sets the HTTP response status code for the current page. Must be called during page building, before the response is sent to the client.
+
+*Added in v3.10.0.*
+
+<ParamField path="code" type="int" required>
+  HTTP status code (e.g. `200`, `404`, `503`). Must be in the range 100–599.
+</ParamField>
+
+```python
+from nicegui import ui
+
+@ui.page('/resource/{id}')
+def resource(id: int):
+    if id not in valid_ids:
+        ui.status_code(404)
+        ui.label('Not found')
+        return
+    ui.label(f'Resource {id}')
+
+ui.run()
+```
+
+---
+
+## Async patterns quick reference
+
+<CodeGroup>
+
+```python Background task with context
+from nicegui import background_tasks, ui
+
+@ui.page('/')
+async def index():
+    container = ui.column()
+    spinner = ui.spinner()
+
+    async def load_data():
+        import asyncio
+        await asyncio.sleep(2)  # simulate async fetch
+        spinner.delete()
+        with container:
+            ui.label('Data loaded!')
+
+    background_tasks.create(load_data(), name='load', context=container)
+
+ui.run()
+```
+
+```python I/O-bound offload
+import requests
+from nicegui import run, ui
+
+@ui.page('/')
+async def index():
+    async def fetch():
+        data = await run.io_bound(requests.get, 'https://httpbin.org/json')
+        ui.notify(data.json()['slideshow']['title'])
+
+    ui.button('Fetch', on_click=fetch)
+
+ui.run()
+```
+
+```python CPU-bound offload
+from nicegui import run, ui
+
+def compute_primes(n: int) -> list[int]:
+    """Module-level function — picklable for the process pool."""
+    sieve = [True] * n
+    for i in range(2, int(n**0.5) + 1):
+        if sieve[i]:
+            for j in range(i * i, n, i):
+                sieve[j] = False
+    return [i for i in range(2, n) if sieve[i]]
+
+@ui.page('/')
+async def index():
+    async def run_primes():
+        primes = await run.cpu_bound(compute_primes, 100_000)
+        ui.notify(f'Found {len(primes)} primes')
+
+    ui.button('Compute primes', on_click=run_primes)
+
+ui.run()
+```
+
+</CodeGroup>

@@ -1,0 +1,502 @@
+---
+title: "Layout Elements in NiceGUI"
+sidebarTitle: "Layout"
+description: "Master NiceGUI layout: rows, columns, cards, grids, tabs, drawers, dialogs, headers, footers, and more — all with context-manager usage patterns."
+---
+
+NiceGUI's layout system is built around Python context managers. Every container element — `ui.row`, `ui.column`, `ui.card`, `ui.grid`, and so on — acts as a `with` block that automatically nests child elements inside it. This keeps your UI structure readable and Pythonic without any HTML or CSS boilerplate.
+
+## `ui.row`
+
+Arranges child elements horizontally using a flexbox row.
+
+**Constructor**
+
+```python
+ui.row(
+    *,
+    wrap: bool = True,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.row(align_items='center'):
+    ui.icon('star', color='yellow')
+    ui.label('Featured')
+    ui.badge('NEW', color='red')
+
+ui.run()
+```
+
+---
+
+## `ui.column`
+
+Arranges child elements vertically using a flexbox column.
+
+**Constructor**
+
+```python
+ui.column(
+    *,
+    wrap: bool = False,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.column(align_items='stretch'):
+    ui.input('First name')
+    ui.input('Last name')
+    ui.button('Submit')
+
+ui.run()
+```
+
+---
+
+## `ui.card`
+
+A container with a drop shadow, backed by Quasar's `QCard`. Provides comfortable padding by default. Call `.tight()` to remove padding.
+
+**Constructor**
+
+```python
+ui.card(
+    *,
+    align_items: Literal['start', 'end', 'center', 'baseline', 'stretch'] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.card():
+    ui.label('Settings').classes('text-h6')
+    ui.separator()
+    ui.switch('Enable notifications')
+    ui.switch('Dark mode')
+
+ui.run()
+```
+
+### `ui.card_section` and `ui.card_actions`
+
+Use `ui.card_section` to divide a card into distinct content sections, and `ui.card_actions` to place action buttons at the bottom.
+
+```python
+from nicegui import ui
+
+with ui.card().tight():
+    with ui.card_section():
+        ui.label('Card title').classes('text-h6')
+        ui.label('Subtitle text').classes('text-subtitle2')
+    ui.separator()
+    with ui.card_section():
+        ui.label('Main body content goes here.')
+    with ui.card_actions():
+        ui.button('Cancel', flat=True)
+        ui.button('OK', color='primary')
+
+ui.run()
+```
+
+---
+
+## `ui.grid`
+
+A CSS-grid container. Specify the number of rows and/or columns as integers or raw CSS template strings.
+
+**Constructor**
+
+```python
+ui.grid(
+    *,
+    rows: int | str | None = None,
+    columns: int | str | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+# 3-column equal-width grid
+with ui.grid(columns=3):
+    for i in range(9):
+        ui.card().classes('p-4').add(ui.label(f'Cell {i + 1}'))
+
+# Custom template strings
+with ui.grid(columns='200px 1fr 1fr', rows='auto 1fr'):
+    ui.label('Sidebar').classes('bg-blue-100 p-2')
+    ui.label('Main').classes('bg-green-100 p-2 col-span-2')
+    ui.label('Footer').classes('bg-grey-200 p-2 col-span-3')
+
+ui.run()
+```
+
+---
+
+## `ui.expansion`
+
+An accordion-style expandable panel backed by Quasar's `QExpansionItem`.
+
+**Constructor**
+
+```python
+ui.expansion(
+    text: str = '',
+    *,
+    caption: str | None = None,
+    icon: str | None = None,
+    group: str | None = None,
+    value: bool = False,
+    on_value_change: Handler | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.expansion('Advanced options', icon='settings', caption='Tweak behaviour'):
+    ui.switch('Enable caching')
+    ui.number('Timeout (s)', value=30, min=1)
+
+ui.run()
+```
+
+---
+
+## `ui.splitter`
+
+Divides the available space into two resizable panes.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.splitter() as splitter:
+    with splitter.before:
+        ui.label('Left pane').classes('p-4')
+    with splitter.after:
+        ui.label('Right pane').classes('p-4')
+
+ui.run()
+```
+
+---
+
+## Tabs (`ui.tabs`, `ui.tab`, `ui.tab_panels`, `ui.tab_panel`)
+
+Tabs are built from two coordinated pairs: `ui.tabs` / `ui.tab` for the tab bar, and `ui.tab_panels` / `ui.tab_panel` for the content.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.tabs().classes('w-full') as tabs:
+    one = ui.tab('Overview')
+    two = ui.tab('Settings')
+    three = ui.tab('Logs')
+
+with ui.tab_panels(tabs, value=one).classes('w-full'):
+    with ui.tab_panel(one):
+        ui.label('Overview content')
+    with ui.tab_panel(two):
+        ui.switch('Dark mode')
+    with ui.tab_panel(three):
+        ui.log(max_lines=20).classes('h-40 w-full')
+
+ui.run()
+```
+
+---
+
+## Stepper (`ui.stepper`, `ui.step`)
+
+Guided multi-step flow backed by Quasar's `QStepper`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.stepper().props('vertical').classes('w-full') as stepper:
+    with ui.step('Step 1: Account'):
+        ui.input('Email')
+        with ui.stepper_navigation():
+            ui.button('Next', on_click=stepper.next)
+    with ui.step('Step 2: Profile'):
+        ui.input('Name')
+        with ui.stepper_navigation():
+            ui.button('Back', on_click=stepper.previous).props('flat')
+            ui.button('Next', on_click=stepper.next)
+    with ui.step('Step 3: Done'):
+        ui.label('All set!')
+        with ui.stepper_navigation():
+            ui.button('Back', on_click=stepper.previous).props('flat')
+            ui.button('Finish', on_click=lambda: ui.notify('Finished!'))
+
+ui.run()
+```
+
+---
+
+## `ui.dialog`
+
+A modal dialog backed by Quasar's `QDialog`. The dialog is created once and shown/hidden programmatically. Awaiting a dialog resolves with the submitted result.
+
+**Constructor**
+
+```python
+ui.dialog(*, value: bool = False)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.dialog() as dialog, ui.card():
+    ui.label('Are you sure?')
+    with ui.row():
+        ui.button('Yes', on_click=lambda: dialog.submit('yes'))
+        ui.button('No', on_click=lambda: dialog.submit('no')).props('flat')
+
+async def confirm():
+    result = await dialog
+    ui.notify(f'You chose: {result}')
+
+ui.button('Open dialog', on_click=confirm)
+ui.run()
+```
+
+<Note>
+Dialogs are not removed when closed — they remain in the DOM but are hidden. Either reuse them, or call `.clear()` after dismissal.
+</Note>
+
+---
+
+## `ui.header`
+
+A fixed (or scrollable) page header backed by Quasar's `QHeader`. Must be placed at the top level, not nested inside other elements.
+
+**Constructor**
+
+```python
+ui.header(
+    *,
+    value: bool = True,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    wrap: bool = True,
+    add_scroll_padding: bool = True,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.header(elevated=True).classes('bg-primary text-white'):
+    ui.label('My App').classes('text-h6')
+    ui.space()
+    ui.button(icon='menu', flat=True, color='white')
+
+ui.run()
+```
+
+---
+
+## `ui.footer`
+
+A fixed or scrolling page footer backed by Quasar's `QFooter`. Same top-level restriction as `ui.header`.
+
+**Constructor**
+
+```python
+ui.footer(
+    *,
+    value: bool = True,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    wrap: bool = True,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.footer(bordered=True).classes('bg-white text-grey-8'):
+    ui.label('© 2024 My Company')
+
+ui.run()
+```
+
+---
+
+## `ui.left_drawer` and `ui.right_drawer`
+
+Side drawers backed by Quasar's `QDrawer`. Must be placed at the top level. A value of `None` (default) auto-opens on wide screens.
+
+**Constructor**
+
+```python
+ui.left_drawer(
+    *,
+    value: bool | None = None,
+    fixed: bool = True,
+    bordered: bool = False,
+    elevated: bool = False,
+    top_corner: bool = False,
+    bottom_corner: bool = False,
+)
+# ui.right_drawer accepts the same parameters
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.header():
+    ui.button(icon='menu', on_click=lambda: drawer.toggle(), flat=True, color='white')
+    ui.label('My App').classes('text-h6')
+
+with ui.left_drawer(bordered=True) as drawer:
+    ui.label('Navigation').classes('text-subtitle1 p-4')
+    ui.separator()
+    for page in ['Home', 'About', 'Contact']:
+        ui.button(page, flat=True).classes('w-full justify-start')
+
+ui.run()
+```
+
+---
+
+## `ui.scroll_area`
+
+A scrollable container that confines overflow content within defined dimensions.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.scroll_area().classes('h-48 w-64 border'):
+    for i in range(20):
+        ui.label(f'Item {i + 1}')
+
+ui.run()
+```
+
+---
+
+## `ui.separator`
+
+A thin horizontal (or vertical) dividing line, backed by Quasar's `QSeparator`.
+
+```python
+from nicegui import ui
+
+with ui.column():
+    ui.label('Section A')
+    ui.separator()
+    ui.label('Section B')
+
+ui.run()
+```
+
+---
+
+## `ui.space`
+
+An expanding spacer that pushes sibling elements apart inside a `row` or `column`.
+
+```python
+from nicegui import ui
+
+with ui.header():
+    ui.label('Left')
+    ui.space()
+    ui.label('Right')
+
+ui.run()
+```
+
+---
+
+## `ui.skeleton`
+
+Displays placeholder content while real data loads, backed by Quasar's `QSkeleton`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.card():
+    with ui.row(align_items='center'):
+        ui.skeleton(type='QAvatar', size='48px')
+        with ui.column():
+            ui.skeleton(type='text', width='8rem')
+            ui.skeleton(type='text', width='5rem')
+    ui.skeleton(type='rect', height='80px')
+
+ui.run()
+```
+
+---
+
+## Full Page Layout Example
+
+A complete shell that combines header, drawer, footer, and main content.
+
+```python
+from nicegui import ui
+
+with ui.header(elevated=True).classes('bg-primary text-white items-center'):
+    ui.button(icon='menu', flat=True, color='white', on_click=lambda: drawer.toggle())
+    ui.label('Dashboard').classes('text-h6')
+    ui.space()
+    ui.button(icon='account_circle', flat=True, color='white')
+
+with ui.left_drawer(bordered=True) as drawer:
+    ui.label('Menu').classes('text-subtitle1 p-4 font-bold')
+    ui.separator()
+    for item in ['Overview', 'Analytics', 'Settings']:
+        ui.button(item, flat=True, icon='chevron_right').classes('w-full justify-start')
+
+with ui.footer(bordered=True).classes('bg-white text-grey-7'):
+    ui.label('© 2024 My App')
+
+with ui.column().classes('p-6 w-full'):
+    with ui.grid(columns=3).classes('w-full gap-4'):
+        for title, value in [('Users', '1 234'), ('Revenue', '$9 870'), ('Uptime', '99.9%')]:
+            with ui.card():
+                ui.label(title).classes('text-subtitle2 text-grey')
+                ui.label(value).classes('text-h5')
+
+ui.run()
+```

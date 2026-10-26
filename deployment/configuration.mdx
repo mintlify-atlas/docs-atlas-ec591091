@@ -1,0 +1,205 @@
+---
+title: "Configuring NiceGUI with ui.run() Parameters"
+sidebarTitle: "Configuration"
+description: "Complete reference for all ui.run() parameters: host, port, storage, dark mode, uvicorn settings, native mode, and production best practices."
+---
+
+Every NiceGUI application starts with a call to `ui.run()`. This function bootstraps a Uvicorn/ASGI server, configures the Vue 3 + Quasar frontend, and wires up WebSocket communication between Python and the browser. Understanding its parameters lets you fine-tune behavior for development ergonomics, production reliability, and native-window deployments.
+
+Most parameters only take effect on a full server restart — they are **not** re-applied during auto-reload.
+
+## Server & Network
+
+<ParamField path="host" type="str | None" default="'0.0.0.0' (web) / '127.0.0.1' (native)">
+  The network interface the server binds to. Defaults to `'0.0.0.0'` so the app is reachable on all interfaces in web mode. When `native=True` the default switches to `'127.0.0.1'` to avoid exposing the internal server. Override to `'0.0.0.0'` explicitly in production containers.
+</ParamField>
+
+<ParamField path="port" type="int | None" default="8080 (web) / auto-detected (native)">
+  TCP port the server listens on. In web mode defaults to `8080`. In native mode NiceGUI automatically finds a free port so you rarely need to set this.
+</ParamField>
+
+<ParamField path="reload" type="bool" default="True">
+  Enable Uvicorn's auto-reload watchdog, which restarts the server whenever a watched `.py` file changes. Invaluable in development. **Always set `reload=False` in production** — it carries overhead and Uvicorn requires the app to be referenced as an import string when reloading.
+</ParamField>
+
+<ParamField path="show" type="bool | str" default="True">
+  Automatically open the UI in the default browser after startup. Pass `False` to suppress this in server or CI environments. Since NiceGUI 3.6.0 you can pass a path string (e.g. `'/dashboard'`) to open a specific page instead of `'/'`.
+</ParamField>
+
+## Page Appearance
+
+<ParamField path="title" type="str" default="'NiceGUI'">
+  Default browser tab title. Individual pages decorated with `@ui.page` can override this with their own `title` argument.
+</ParamField>
+
+<ParamField path="viewport" type="str" default="'width=device-width, initial-scale=1'">
+  Content of the HTML `<meta name="viewport">` tag. Adjust for fixed-width or kiosk-style layouts.
+</ParamField>
+
+<ParamField path="favicon" type="str | Path | None" default="None">
+  Site icon shown in the browser tab. Accepts a local file path, an absolute `http(s)://` URL, a data URL, an inline SVG string, or an emoji (e.g. `'🚀'`). Defaults to the NiceGUI logo. On Windows in native mode, a `.ico` file path is also applied as the native window icon.
+</ParamField>
+
+<ParamField path="dark" type="bool | None" default="False">
+  Global Quasar dark-mode state. `False` = light mode, `True` = dark mode, `None` = follow the OS preference ("auto" mode).
+</ParamField>
+
+<ParamField path="language" type="Language | None" default="None">
+  Locale for Quasar component labels and the HTML `lang` attribute (e.g. `'de'`, `'fr'`, `'zh-CN'`). When `None`, Quasar elements use `'en-US'` and the `lang` attribute is omitted.
+</ParamField>
+
+## Real-Time & Connection Behavior
+
+<ParamField path="binding_refresh_interval" type="float | None" default="0.1">
+  How often (in seconds) NiceGUI polls Python values and pushes updates to active UI bindings. Increase this value to reduce CPU usage on constrained hardware. Set to `None` to disable the update loop entirely (useful if you manage refreshes manually).
+</ParamField>
+
+<ParamField path="reconnect_timeout" type="float" default="3.0">
+  Maximum seconds the server waits for a browser to reconnect after a connection drop before discarding the client's state. Increase this on slow or flaky networks.
+</ParamField>
+
+<ParamField path="message_history_length" type="int" default="1000">
+  Number of WebSocket messages stored per client session so they can be replayed after a brief disconnection. Set to `0` to disable the replay buffer and reduce memory usage.
+</ParamField>
+
+## Storage & Sessions
+
+<ParamField path="storage_secret" type="str | None" default="None">
+  Secret key used to sign the session cookie that backs `ui.storage.user` and `ui.storage.browser`. **Required** to use per-user persistent storage. In production, load this from an environment variable rather than hard-coding it.
+
+  ```python
+  import os
+  from nicegui import ui
+
+  ui.run(storage_secret=os.environ["STORAGE_SECRET"])
+  ```
+</ParamField>
+
+<ParamField path="session_middleware_kwargs" type="dict[str, Any] | None" default="None">
+  Extra keyword arguments forwarded to Starlette's `SessionMiddleware` that creates session cookies. Use this to customize cookie attributes such as `max_age`, `same_site`, or `https_only`.
+
+  ```python
+  ui.run(
+      storage_secret="my-secret",
+      session_middleware_kwargs={"https_only": True, "same_site": "strict"},
+  )
+  ```
+</ParamField>
+
+## Uvicorn & Auto-Reload Tuning
+
+<ParamField path="uvicorn_logging_level" type="str" default="'warning'">
+  Log verbosity for the Uvicorn server itself. Accepts standard Python logging level names: `'critical'`, `'error'`, `'warning'`, `'info'`, `'debug'`, `'trace'`. Raise to `'info'` during debugging to see request logs.
+</ParamField>
+
+<ParamField path="uvicorn_reload_dirs" type="str" default="'.'">
+  Comma-separated list of directories watched for file changes when `reload=True`. Defaults to the current working directory. Restrict this to your source tree (e.g. `'src,templates'`) to reduce inotify overhead on large projects.
+</ParamField>
+
+<ParamField path="uvicorn_reload_includes" type="str" default="'*.py'">
+  Comma-separated glob patterns that trigger a reload when a matching file changes. Add other extensions if your app hot-loads configuration files (e.g. `'*.py,*.yaml'`).
+</ParamField>
+
+<ParamField path="uvicorn_reload_excludes" type="str" default="'.*, .py[cod], .sw.*, ~*'">
+  Comma-separated glob patterns excluded from reload watching. Extend this list to prevent spurious reloads caused by editor swap files, caches, or build artefacts.
+</ParamField>
+
+## Frontend & JavaScript
+
+<ParamField path="tailwind" type="bool" default="True">
+  Enable Tailwind CSS utility classes. When `True`, you can use `.classes('text-lg font-bold')` on any element. Disable if you are building a CSS-framework-free UI to avoid loading the Tailwind stylesheet.
+</ParamField>
+
+<ParamField path="prod_js" type="bool" default="True">
+  Serve minified production builds of Vue and Quasar. Set to `False` in development to get source-mapped, human-readable JS that makes browser DevTools debugging easier.
+</ParamField>
+
+## FastAPI & OpenAPI Docs
+
+<ParamField path="endpoint_documentation" type="'none' | 'internal' | 'page' | 'all'" default="'none'">
+  Controls which NiceGUI endpoints appear in the auto-generated OpenAPI schema:
+  - `'none'` — no NiceGUI endpoints are documented (default)
+  - `'internal'` — only internal `/_nicegui/*` routes are included
+  - `'page'` — only user-defined `@ui.page` routes are included
+  - `'all'` — all routes are included
+</ParamField>
+
+<ParamField path="fastapi_docs" type="bool | DocsConfig" default="False">
+  Enable FastAPI's automatic documentation UIs at `/docs` (Swagger UI), `/redoc` (ReDoc), and `/openapi.json`. Pass a dictionary matching the `DocsConfig` shape to customize the title, summary, description, version, terms of service, contact, and license info fields that FastAPI surfaces.
+
+  ```python
+  ui.run(fastapi_docs={
+      "title": "My App API",
+      "version": "2.1.0",
+      "contact": {"name": "Support", "email": "support@example.com"},
+  })
+  ```
+</ParamField>
+
+## Native Mode
+
+These parameters open NiceGUI in an OS-native window (via pywebview) rather than a browser tab. Setting any of `window_size`, `fullscreen`, or `frameless` automatically enables `native=True`.
+
+<ParamField path="native" type="bool" default="False">
+  Open the UI in a native desktop window sized 800×600. Automatically sets `show=False` and picks a free port.
+</ParamField>
+
+<ParamField path="window_size" type="tuple[int, int] | None" default="None">
+  Open a native window at a specific size, e.g. `(1280, 800)`. Implies `native=True`.
+</ParamField>
+
+<ParamField path="fullscreen" type="bool" default="False">
+  Open the native window in fullscreen mode. Implies `native=True`.
+</ParamField>
+
+<ParamField path="frameless" type="bool" default="False">
+  Open the native window without OS chrome (title bar, borders). Useful for kiosk or splash-screen applications. Implies `native=True`.
+</ParamField>
+
+## Production Best Practices
+
+Follow these guidelines when moving from development to a production deployment.
+
+<Steps>
+  <Step title="Disable auto-reload">
+    Auto-reload is designed for development. It requires passing the app as an import string to Uvicorn and carries file-watching overhead. Always disable it in production:
+
+    ```python
+    ui.run(reload=False)
+    ```
+  </Step>
+
+  <Step title="Set a storage secret">
+    `ui.storage.user` and `ui.storage.browser` are unavailable without a secret. Use a long random value and load it from an environment variable:
+
+    ```python
+    import os, secrets
+    # Generate once: python -c "import secrets; print(secrets.token_hex(32))"
+    ui.run(storage_secret=os.environ["STORAGE_SECRET"])
+    ```
+  </Step>
+
+  <Step title="Bind to all interfaces">
+    When running inside a container or behind a reverse proxy, bind to `0.0.0.0` so the server is reachable from outside the process:
+
+    ```python
+    ui.run(host="0.0.0.0", port=8080)
+    ```
+  </Step>
+
+  <Step title="Use production JS bundles">
+    `prod_js=True` is the default. Leave it enabled to serve minified Vue and Quasar assets, which reduces page load times significantly.
+  </Step>
+
+  <Step title="Single Uvicorn worker">
+    NiceGUI maintains per-client WebSocket state in process memory, so running multiple workers will break sessions. Use exactly one worker (the default). Scale horizontally with sticky sessions at the load balancer instead.
+  </Step>
+</Steps>
+
+<Warning>
+  Passing `workers > 1` to `ui.run()` raises a `ValueError`. NiceGUI does not support multiple Uvicorn workers because WebSocket connections and in-memory client state cannot be shared across processes.
+</Warning>
+
+<Note>
+  Extra keyword arguments passed to `ui.run()` are forwarded directly to `uvicorn.run()`. This means you can pass TLS settings such as `ssl_certfile` and `ssl_keyfile` to enable HTTPS directly — though terminating TLS at a reverse proxy is usually preferred in production.
+</Note>

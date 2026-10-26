@@ -1,0 +1,337 @@
+---
+title: "NiceGUI Data Binding: Reactive UI Without setState"
+sidebarTitle: "Data Binding"
+description: "Sync NiceGUI element properties to Python objects, dicts, and dataclass fields automatically with bind_value, bind_text, and @ui.refreshable."
+---
+
+NiceGUI's binding system lets you declare that a UI property **mirrors** a Python value — and then forget about synchronization. When the Python value changes, the element updates automatically; when the user interacts with the element, the Python value updates too. No manual `.update()` calls required.
+
+## How Bindings Work: Push and Pull
+
+NiceGUI uses two complementary mechanisms internally:
+
+- **Push (synchronous):** When you assign a value to a `BindableProperty` descriptor — the kind used on NiceGUI element attributes like `value`, `text`, and `visible` — the change propagates immediately and synchronously through all connected bindings.
+- **Pull (periodic):** A refresh loop runs every `binding_refresh_interval` seconds (default `0.1`) and polls all `active_links`. This is what makes bindings work against plain `dict` keys and ordinary object attributes that have no setter to hook into.
+
+In practice this means:
+- Binding two NiceGUI elements together (both use `BindableProperty`) → **instant** propagation.
+- Binding a `ui.input` to a plain `dict` or dataclass field → the refresh loop picks up changes within ~100 ms.
+
+You can adjust the polling interval in `ui.run()`:
+
+```python
+ui.run(binding_refresh_interval=0.05)  # 50 ms — more responsive, higher CPU
+ui.run(binding_refresh_interval=None)  # disable the pull loop entirely
+```
+
+---
+
+## Binding Methods on Elements
+
+Every NiceGUI element that holds a user-visible value exposes three binding variants. All return `Self` so they can be chained.
+
+```python
+# Two-way: element value ↔ object attribute
+ui.input('Name').bind_value(obj, 'attr')
+
+# One-way from object to element (display only)
+ui.label().bind_text_from(obj, 'attr')
+
+# One-way from element to object (write only)
+ui.input().bind_value_to(obj, 'attr')
+```
+
+### Available Binding Families
+
+| Family | Applies to | What it binds |
+|--------|-----------|---------------|
+| `bind_value` | inputs, sliders, checkboxes, etc. | The element's current value |
+| `bind_text` | `ui.label`, `ui.button`, `ui.markdown` | Displayed text content |
+| `bind_visibility` | any element | Whether the element is visible |
+| `bind_enabled` | interactive elements | Whether the element is enabled |
+| `bind_content` | `ui.html`, `ui.markdown` | Raw HTML / Markdown content |
+| `bind_source` | `ui.image`, `ui.audio`, `ui.video` | Media source URL |
+
+Each family provides three methods: `bind_X(obj, attr)` (two-way), `bind_X_from(obj, attr)` (object → element), and `bind_X_to(obj, attr)` (element → object).
+
+---
+
+## Binding Targets
+
+### Plain Python Objects
+
+Any object attribute works as a binding target. No base class or decorator is needed.
+
+```python
+from nicegui import ui
+
+class User:
+    name: str = 'Alice'
+    active: bool = True
+
+user = User()
+
+ui.input('Name').bind_value(user, 'name')
+ui.label().bind_text_from(user, 'name', backward=lambda v: f'Hello, {v}!')
+ui.switch('Active').bind_value(user, 'active')
+ui.label('Admin panel').bind_visibility_from(user, 'active')
+```
+
+### Dictionaries
+
+Dict keys work as binding paths. Missing keys are created automatically on write.
+
+```python
+from nicegui import ui
+
+data = {'count': 0, 'message': 'Hello'}
+
+ui.label().bind_text_from(data, 'count', backward=lambda v: f'Count: {v}')
+ui.input('Message').bind_value(data, 'message')
+```
+
+### Dataclass Fields
+
+```python
+from dataclasses import dataclass
+from nicegui import ui
+
+@dataclass
+class Settings:
+    theme: str = 'light'
+    font_size: int = 14
+
+settings = Settings()
+
+ui.select(['light', 'dark'], label='Theme').bind_value(settings, 'theme')
+ui.number('Font size', min=8, max=32).bind_value(settings, 'font_size')
+```
+
+### Nested Keys (Tuple Paths)
+
+Pass a tuple to traverse nested attributes or dict keys:
+
+```python
+from nicegui import ui
+
+state = {'user': {'profile': {'name': 'Alice'}}}
+
+ui.input('Name').bind_value(state, ('user', 'profile', 'name'))
+```
+
+### Value Transformations
+
+The `forward` (element → object) and `backward` (object → element) parameters accept any callable:
+
+```python
+from nicegui import ui
+
+temperature = {'celsius': 20.0}
+
+ui.label().bind_text_from(
+    temperature, 'celsius',
+    backward=lambda c: f'{c:.1f} °C  /  {c * 9/5 + 32:.1f} °F'
+)
+ui.slider(min=-30, max=50).bind_value(temperature, 'celsius')
+```
+
+---
+
+## `BindableProperty` for Custom Classes
+
+If you want assignments to your own class to propagate bindings **immediately** (push semantics instead of pull), declare fields as `BindableProperty` descriptors. This is what NiceGUI elements do internally.
+
+```python
+from nicegui import ui
+from nicegui.binding import BindableProperty
+
+class Counter:
+    value = BindableProperty(on_change=lambda self, v: print(f'Changed to {v}'))
+
+    def __init__(self, start: int = 0) -> None:
+        self.value = start
+
+    def increment(self) -> None:
+        self.value += 1  # triggers propagation synchronously
+
+counter = Counter()
+
+label = ui.label()
+label.bind_text_from(counter, 'value', backward=lambda v: f'Count: {v}')
+
+ui.button('+1', on_click=counter.increment)
+```
+
+### `@binding.bindable_dataclass`
+
+For dataclasses, use the `@binding.bindable_dataclass` decorator to make fields bindable with a single annotation:
+
+```python
+from nicegui import ui
+from nicegui.binding import bindable_dataclass
+
+@bindable_dataclass
+class AppState:
+    username: str = ''
+    dark_mode: bool = False
+
+state = AppState()
+
+ui.input('Username').bind_value(state, 'username')
+ui.switch('Dark mode').bind_value(state, 'dark_mode')
+ui.label().bind_text_from(state, 'username', backward=lambda v: f'Hi, {v or "stranger"}!')
+```
+
+---
+
+## BAD vs. GOOD Patterns
+
+<Warning>
+**Do not delete and recreate elements to reflect data changes.** NiceGUI has no virtual DOM — recreating elements destroys Vue component state (focus, scroll position, animations) and is far more expensive than updating in place.
+</Warning>
+
+```python
+# ❌ BAD: clears and rebuilds the whole label on every timer tick
+count = 0
+container = ui.column()
+
+def update():
+    global count
+    count += 1
+    container.clear()
+    with container:
+        ui.label(f'Count: {count}')  # new element every second
+
+ui.timer(1.0, update)
+```
+
+```python
+# ✅ GOOD: update the existing element in place
+count = 0
+label = ui.label('Count: 0')
+
+def update():
+    global count
+    count += 1
+    label.set_text(f'Count: {count}')
+
+ui.timer(1.0, update)
+```
+
+Even better — use a binding so you never touch the label manually:
+
+```python
+# ✅ BEST: binding keeps label in sync automatically
+from nicegui.binding import BindableProperty
+
+class State:
+    value = BindableProperty()
+    def __init__(self): self.value = 0
+
+state = State()
+ui.label().bind_text_from(state, 'value', backward=lambda v: f'Count: {v}')
+ui.timer(1.0, lambda: setattr(state, 'value', state.value + 1))
+```
+
+---
+
+## `@ui.refreshable` — Reactive Sections
+
+When you genuinely need to **rebuild** a UI subtree (e.g. a list that gains or loses items), use `@ui.refreshable`. It clears only the decorated function's output and recreates it safely.
+
+```python
+from nicegui import ui
+
+items = ['Apple', 'Banana']
+
+@ui.refreshable
+def item_list():
+    for item in items:
+        with ui.row().classes('items-center gap-2'):
+            ui.label(item)
+            ui.button(icon='delete', on_click=lambda i=item: remove(i)).props('flat dense')
+
+def remove(item: str) -> None:
+    items.remove(item)
+    item_list.refresh()
+
+item_list()  # initial render
+ui.button('Add Cherry', on_click=lambda: (items.append('Cherry'), item_list.refresh()))
+```
+
+### `ui.state()` — Local State Inside Refreshables
+
+Use `ui.state()` for React-style local state that automatically triggers a refresh when it changes:
+
+```python
+from nicegui import ui
+
+@ui.refreshable
+def counter_widget():
+    count, set_count = ui.state(0)
+    ui.label(f'Count: {count}').classes('text-xl')
+    with ui.row():
+        ui.button('-1', on_click=lambda: set_count(count - 1))
+        ui.button('+1', on_click=lambda: set_count(count + 1))
+
+counter_widget()
+```
+
+### `@ui.refreshable_method` for Classes
+
+```python
+from nicegui import ui
+
+class Dashboard:
+    def __init__(self):
+        self.data: list[str] = []
+
+    @ui.refreshable_method
+    def render(self):
+        ui.label(f'{len(self.data)} items')
+        for item in self.data:
+            ui.chip(item)
+
+    def add(self, item: str) -> None:
+        self.data.append(item)
+        self.render.refresh()
+
+dash = Dashboard()
+dash.render()
+ui.button('Add item', on_click=lambda: dash.add(f'Item {len(dash.data)+1}'))
+```
+
+---
+
+## Binding Between Two Elements
+
+Elements can bind directly to each other — no intermediate model object needed:
+
+```python
+from nicegui import ui
+
+slider = ui.slider(min=0, max=100, value=50)
+# Display the slider value in a label, formatted
+ui.label().bind_text_from(slider, 'value', backward=lambda v: f'Volume: {v}%')
+# Mirror the slider value into a number input (two-way)
+ui.number('Exact value', min=0, max=100).bind_value(slider, 'value')
+```
+
+---
+
+## Binding to `app.storage`
+
+Storage dictionaries are `ObservableDict` instances, so bindings work against them with full pull semantics:
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    # persists across page reloads for the same user
+    ui.input('Saved name').bind_value(app.storage.user, 'name')
+    ui.label().bind_text_from(
+        app.storage.user, 'name',
+        backward=lambda v: f'Welcome back, {v}!' if v else 'Hello, stranger!'
+    )
+```

@@ -1,0 +1,550 @@
+---
+title: "Input & Control Elements in NiceGUI"
+sidebarTitle: "Inputs & Controls"
+description: "Comprehensive guide to NiceGUI's form inputs and controls: text, number, select, radio, checkbox, switch, slider, button, date, time, and more."
+---
+
+NiceGUI ships with a full suite of form controls — every element you need to collect user input. All controls expose an `on_change` callback and a reactive `.value` property, so you can bind them to application state with minimal boilerplate. The examples below show individual elements as well as a complete form demonstrating real-world usage.
+
+## `ui.input`
+
+A single-line text input backed by Quasar's `QInput`. Fires `on_change` on every keystroke.
+
+**Constructor**
+
+```python
+ui.input(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: str | None = '',
+    password: bool = False,
+    password_toggle_button: bool = False,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+    autocomplete: list[str] | None = None,
+    validation: dict | Callable | None = None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `label` | `str \| None` | `None` | Floating label text |
+| `placeholder` | `str \| None` | `None` | Hint shown when empty |
+| `value` | `str \| None` | `''` | Initial value |
+| `password` | `bool` | `False` | Mask characters |
+| `password_toggle_button` | `bool` | `False` | Show visibility toggle |
+| `on_change` | `Handler \| None` | `None` | Callback on every keystroke |
+| `validation` | `dict \| Callable \| None` | `None` | Validation rules |
+
+**Example**
+
+```python
+from nicegui import ui
+
+name = ui.input(
+    label='Full name',
+    placeholder='Jane Doe',
+    validation={'Name too short': lambda v: len(v or '') >= 2},
+)
+
+ui.run()
+```
+
+---
+
+## `ui.textarea`
+
+Multi-line text input. Inherits all `ui.input` parameters; sets `type='textarea'` internally.
+
+**Constructor**
+
+```python
+ui.textarea(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: str | None = '',
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+    validation: dict | Callable | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.textarea(
+    label='Bio',
+    placeholder='Tell us about yourself…',
+    value='',
+    on_change=lambda e: print(e.value),
+)
+
+ui.run()
+```
+
+---
+
+## `ui.number`
+
+Numeric input with optional min/max bounds, step, and display format. Backed by Quasar's `QInput` with `type="number"`.
+
+**Constructor**
+
+```python
+ui.number(
+    label: str | None = None,
+    *,
+    placeholder: str | None = None,
+    value: float | None = None,
+    min: float | None = None,
+    max: float | None = None,
+    precision: int | None = None,
+    step: float | None = None,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    format: str | None = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+    validation: dict | Callable | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.number(
+    label='Price',
+    value=9.99,
+    min=0.0,
+    max=9999.99,
+    precision=2,
+    prefix='$',
+    step=0.01,
+    format='%.2f',
+)
+
+ui.run()
+```
+
+---
+
+## `ui.input` (password mode)
+
+Use `password=True` (and optionally `password_toggle_button=True`) on `ui.input` to create a password field.
+
+```python
+from nicegui import ui
+
+ui.input(
+    label='Password',
+    password=True,
+    password_toggle_button=True,
+    validation={'Too short': lambda v: len(v or '') >= 8},
+)
+
+ui.run()
+```
+
+---
+
+## `ui.select`
+
+Dropdown selection backed by Quasar's `QSelect`. Accepts a list or dict of options; supports multi-select, filtering, and adding new values.
+
+**Constructor**
+
+```python
+ui.select(
+    options: list | dict,
+    *,
+    label: str | None = None,
+    value: Any = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+    with_input: bool = False,
+    new_value_mode: Literal['add', 'add-unique', 'toggle'] | None = None,
+    multiple: bool = False,
+    clearable: bool = False,
+    validation: dict | Callable | None = None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `options` | `list \| dict` | — | Choices as a list or `{value: label}` dict |
+| `multiple` | `bool` | `False` | Allow multi-select |
+| `with_input` | `bool` | `False` | Show a filter input |
+| `clearable` | `bool` | `False` | Show a clear button |
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.select(
+    options=['Python', 'TypeScript', 'Rust', 'Go'],
+    label='Favourite language',
+    value='Python',
+    with_input=True,
+)
+
+ui.select(
+    options={'en': 'English', 'de': 'German', 'fr': 'French'},
+    label='Language',
+    value='en',
+    clearable=True,
+)
+
+ui.run()
+```
+
+---
+
+## `ui.radio`
+
+Radio-button group backed by Quasar's `QOptionGroup`. Options follow the same `list | dict` convention as `ui.select`.
+
+**Constructor**
+
+```python
+ui.radio(
+    options: list | dict,
+    *,
+    value: Any = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+plan = ui.radio(
+    options={'free': 'Free', 'pro': 'Pro ($9/mo)', 'enterprise': 'Enterprise'},
+    value='free',
+    on_change=lambda e: ui.notify(f'Plan: {e.value}'),
+)
+
+ui.run()
+```
+
+---
+
+## `ui.checkbox`
+
+A Quasar `QCheckbox`. Value is a `bool`.
+
+**Constructor**
+
+```python
+ui.checkbox(
+    text: str = '',
+    *,
+    value: bool | None = False,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+terms = ui.checkbox('I agree to the terms and conditions')
+ui.button('Submit', on_click=lambda: ui.notify('Agreed!' if terms.value else 'Please agree first'))
+
+ui.run()
+```
+
+---
+
+## `ui.switch`
+
+A toggle switch backed by Quasar's `QToggle`. Semantics are identical to `ui.checkbox`.
+
+**Constructor**
+
+```python
+ui.switch(
+    text: str = '',
+    *,
+    value: bool | None = False,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+dark = ui.switch('Dark mode', on_change=lambda e: ui.dark_mode(e.value))
+
+ui.run()
+```
+
+---
+
+## `ui.toggle`
+
+A button-group style toggle for selecting a single option from a small set. Similar API to `ui.radio`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.toggle(['Day', 'Week', 'Month'], value='Day')
+
+ui.run()
+```
+
+---
+
+## `ui.slider`
+
+A range slider backed by Quasar's `QSlider`. `on_change` fires during dragging; use `.on('change', ...)` for release-only events.
+
+**Constructor**
+
+```python
+ui.slider(
+    *,
+    min: float,
+    max: float,
+    step: float = 1.0,
+    value: float | None = None,
+    on_change: Handler[ValueChangeEventArguments] | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+slider = ui.slider(min=0, max=100, step=5, value=50)
+ui.label().bind_text_from(slider, 'value', backward=lambda v: f'Value: {v}')
+
+ui.run()
+```
+
+---
+
+## `ui.range`
+
+A two-handle range slider for selecting an interval. Returns a `dict` with `min` and `max` keys.
+
+**Example**
+
+```python
+from nicegui import ui
+
+r = ui.range(min=0, max=100, value={'min': 20, 'max': 80})
+ui.label().bind_text_from(r, 'value', backward=lambda v: f'{v["min"]} – {v["max"]}')
+
+ui.run()
+```
+
+---
+
+## `ui.knob`
+
+A circular knob control for numeric input, backed by Quasar's `QKnob`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+knob = ui.knob(0.5, min=0, max=1, step=0.01, track_color='grey-2')
+ui.label().bind_text_from(knob, 'value', backward=lambda v: f'{v:.0%}')
+
+ui.run()
+```
+
+---
+
+## `ui.button`
+
+A clickable button backed by Quasar's `QBtn`. Supports icons, color theming, and async `await button.clicked()`.
+
+**Constructor**
+
+```python
+ui.button(
+    text: str = '',
+    *,
+    on_click: Handler[ClickEventArguments] | None = None,
+    color: str | None = 'primary',
+    icon: str | None = None,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.button('Save', icon='save', on_click=lambda: ui.notify('Saved!'))
+ui.button('Delete', color='negative', icon='delete')
+ui.button(icon='add')  # icon-only button
+
+ui.run()
+```
+
+---
+
+## `ui.button_group`
+
+Groups several buttons together with shared styling (no gaps or border-radius between them).
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.button_group():
+    ui.button('Left', on_click=lambda: ui.notify('left'))
+    ui.button('Center', on_click=lambda: ui.notify('center'))
+    ui.button('Right', on_click=lambda: ui.notify('right'))
+
+ui.run()
+```
+
+---
+
+## `ui.dropdown_button`
+
+A button that reveals a dropdown menu when clicked.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.dropdown_button('Actions', auto_close=True):
+    ui.item('Edit', on_click=lambda: ui.notify('Edit'))
+    ui.item('Delete', on_click=lambda: ui.notify('Delete'))
+
+ui.run()
+```
+
+---
+
+## `ui.color_input`
+
+A text input combined with a color-picker popup.
+
+**Example**
+
+```python
+from nicegui import ui
+
+color = ui.color_input(label='Brand colour', value='#1976D2')
+ui.label().bind_text_from(color, 'value', backward=lambda v: f'Selected: {v}')
+
+ui.run()
+```
+
+---
+
+## `ui.date`
+
+A date-picker backed by Quasar's `QDate`. Value is a string in `YYYY/MM/DD` format by default.
+
+**Example**
+
+```python
+from nicegui import ui
+
+date = ui.date(value='2024/01/01', on_change=lambda e: ui.notify(e.value))
+
+ui.run()
+```
+
+---
+
+## `ui.time`
+
+A time-picker backed by Quasar's `QTime`. Value is a `HH:MM` string.
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.time(value='09:30', on_change=lambda e: ui.notify(e.value))
+
+ui.run()
+```
+
+---
+
+## `ui.upload`
+
+File-upload control backed by Quasar's `QUploader`.
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.upload(
+    label='Attach file',
+    on_upload=lambda e: ui.notify(f'Received {e.name}'),
+    multiple=True,
+    max_file_size=5_000_000,
+).props('accept=".pdf,.png,.jpg"')
+
+ui.run()
+```
+
+---
+
+## Complete Form Example
+
+The following example builds a realistic user-registration form with validation.
+
+```python
+from nicegui import ui
+
+with ui.card().classes('w-96'):
+    ui.label('Create account').classes('text-h6')
+
+    name = ui.input(
+        'Full name',
+        validation={'Required': lambda v: bool(v)},
+    )
+    email = ui.input(
+        'Email',
+        placeholder='you@example.com',
+        validation={'Invalid email': lambda v: '@' in (v or '')},
+    )
+    password = ui.input(
+        'Password',
+        password=True,
+        password_toggle_button=True,
+        validation={'Min 8 chars': lambda v: len(v or '') >= 8},
+    )
+    plan = ui.radio(
+        options={'free': 'Free', 'pro': 'Pro'},
+        value='free',
+    )
+    terms = ui.checkbox('I accept the terms of service')
+
+    def submit():
+        if not terms.value:
+            ui.notify('Please accept the terms', type='warning')
+            return
+        ui.notify(f'Welcome, {name.value}!', type='positive')
+
+    ui.button('Register', on_click=submit, color='primary').classes('w-full')
+
+ui.run()
+```

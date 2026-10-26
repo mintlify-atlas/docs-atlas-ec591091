@@ -1,0 +1,321 @@
+---
+title: "Running NiceGUI Apps with Docker"
+sidebarTitle: "Docker"
+description: "Package and run NiceGUI apps with Docker: official image quickstart, custom Dockerfiles, Docker Compose, volumes, health checks, and Nginx reverse proxy."
+---
+
+Docker is the most portable way to ship a NiceGUI application. The official `zauberzeug/nicegui` image on Docker Hub provides a ready-to-run Python environment with NiceGUI pre-installed, and the entrypoint script handles non-root user execution and signal forwarding so your app shuts down gracefully when the container stops.
+
+## Official Image Quickstart
+
+The fastest way to try NiceGUI with Docker is to mount your application directory into the official image:
+
+```bash
+docker run -p 8080:8080 -v $(pwd)/app:/app zauberzeug/nicegui:latest
+```
+
+NiceGUI will execute the `main.py` found inside `/app`. The UI is then accessible at [http://localhost:8080](http://localhost:8080).
+
+<Note>
+  The official image runs your code as a non-root user. Files written by the application (including the `.nicegui` persistence directory) will be owned by the UID/GID you specify via the `PUID` and `PGID` environment variables (both default to `1000`).
+</Note>
+
+## Custom Dockerfile
+
+For applications with their own dependencies, build a custom image. Place your `main.py` and `requirements.txt` (or `pyproject.toml`) alongside a `Dockerfile`:
+
+```dockerfile
+FROM python:3.12-slim
+
+# Install uv for fast dependency resolution
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Copy dependency manifest first — improves layer caching
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --no-install-project --no-dev
+
+# Copy application source
+COPY . .
+
+EXPOSE 8080
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["uv", "run", "--no-sync", "main.py"]
+```
+
+Build and run:
+
+```bash
+docker build -t my-nicegui-app .
+docker run -p 8080:8080 my-nicegui-app
+```
+
+### Multi-Stage Build
+
+A multi-stage build keeps the final image lean by separating the dependency-install stage from the runtime stage:
+
+```dockerfile
+# ── Stage 1: install dependencies ───────────────────────────────────────────
+FROM python:3.12-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+WORKDIR /app
+
+COPY pyproject.toml uv.lock* ./
+RUN uv sync --no-install-project --no-dev
+
+# ── Stage 2: runtime image ───────────────────────────────────────────────────
+FROM python:3.12-slim
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY . .
+
+EXPOSE 8080
+
+CMD ["python", "main.py"]
+```
+
+## Production `main.py`
+
+Your application entry point should disable auto-reload, bind to all interfaces, and read the storage secret from an environment variable:
+
+```python
+import os
+from nicegui import app, ui
+
+
+@ui.page('/')
+def index():
+    ui.textarea('This note is kept between visits') \
+        .classes('w-96').bind_value(app.storage.user, 'note')
+
+
+def handle_shutdown():
+    print('Graceful shutdown initiated')
+
+
+app.on_shutdown(handle_shutdown)
+
+ui.run(
+    host='0.0.0.0',
+    port=8080,
+    reload=False,
+    storage_secret=os.environ['STORAGE_SECRET'],
+)
+```
+
+## Docker Compose
+
+Docker Compose makes it easy to wire together your NiceGUI app with other services (databases, proxies, etc.).
+
+### Basic Compose File
+
+```yaml
+services:
+  nicegui:
+    image: zauberzeug/nicegui:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./app:/app             # mount application source
+    environment:
+      - PUID=1000              # run as this UID
+      - PGID=1000              # run as this GID
+      - STORAGE_SECRET=change-this-to-your-own-private-secret
+```
+
+<Warning>
+  Replace `change-this-to-your-own-private-secret` with a long random string before deploying. Generate one with `python -c "import secrets; print(secrets.token_hex(32))"`.
+</Warning>
+
+### Compose with a Custom Build
+
+```yaml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - STORAGE_SECRET=${STORAGE_SECRET}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+```
+
+Store secrets in a `.env` file that you exclude from version control:
+
+```bash
+# .env  (add to .gitignore)
+STORAGE_SECRET=your-random-secret-here
+```
+
+## Volume Mounts for Persistent Storage
+
+NiceGUI writes per-user storage data to a `.nicegui` directory inside the working directory (`/app` in the container). Mount a host directory there to persist data across container restarts:
+
+```yaml
+services:
+  nicegui:
+    image: zauberzeug/nicegui:latest
+    volumes:
+      - ./app:/app             # application code + .nicegui persistence
+```
+
+Because `/app` is bind-mounted from the host, the `.nicegui` folder survives container restarts and upgrades. You can verify this by saving data in the UI, restarting the container, and confirming the data is still present.
+
+<Tip>
+  If you use an anonymous volume for a virtual environment directory (e.g. `/app/.venv`), Docker will not overwrite it with the host's copy:
+
+  ```yaml
+  volumes:
+    - ./:/app
+    - /app/.venv   # keep container's venv separate from host
+  ```
+</Tip>
+
+## Health Checks
+
+NiceGUI exposes a `/health` endpoint that returns HTTP 200 when the server is ready. Use it with Docker's built-in health check:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+```
+
+Or in Compose:
+
+```yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 15s
+```
+
+## Environment Variable Configuration
+
+<CardGroup cols={2}>
+  <Card title="PUID / PGID" icon="user">
+    UID and GID the entrypoint uses to run the application process. Defaults to `1000`. Set these to match your host user to avoid permission issues with mounted volumes.
+  </Card>
+  <Card title="STORAGE_SECRET" icon="key">
+    Secret key for signing session cookies. Required to use `ui.storage.user` or `ui.storage.browser`. Read it in `main.py` via `os.environ['STORAGE_SECRET']`.
+  </Card>
+  <Card title="PYTHONUNBUFFERED" icon="terminal">
+    Set to `1` (or `True`) so Python stdout/stderr is flushed immediately and appears in `docker logs` without delay.
+  </Card>
+  <Card title="PORT" icon="plug">
+    If your deployment platform injects a `PORT` environment variable (e.g. some PaaS providers), read it: `port=int(os.environ.get('PORT', 8080))`.
+  </Card>
+</CardGroup>
+
+## Nginx Reverse Proxy with HTTPS
+
+The official `examples/nginx_https` setup places Nginx in front of NiceGUI to handle TLS termination. The compose file is:
+
+```yaml
+services:
+  app:
+    image: zauberzeug/nicegui:latest
+    volumes:
+      - ./app:/app           # mount local app directory
+  proxy:
+    image: nginx:1.27.0-alpine
+    ports:
+      - "80:80"              # HTTP (redirects to HTTPS)
+      - "443:443"            # HTTPS
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certs:/certs
+```
+
+The corresponding `nginx.conf` redirects all HTTP traffic to HTTPS and proxies WebSocket upgrade headers to NiceGUI:
+
+```nginx
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name _;
+        resolver 127.0.0.11;
+
+        # Redirect all HTTP requests to HTTPS
+        return 301 https://$host$request_uri;
+    }
+
+    server {
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        http2 on;
+        server_name _;
+        resolver 127.0.0.11;
+
+        ssl_certificate     /certs/localhost.crt;
+        ssl_certificate_key /certs/localhost.key;
+        ssl_session_timeout 1d;
+
+        location / {
+            proxy_pass http://app:8080;
+            proxy_redirect http://app:8080/ /;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # WebSocket upgrade headers — required by NiceGUI
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+        }
+    }
+}
+```
+
+<Warning>
+  The `proxy_set_header Upgrade` and `Connection "Upgrade"` directives are **mandatory**. Without them, NiceGUI's WebSocket connection will fail and the UI will not receive real-time updates from the Python backend.
+</Warning>
+
+Generate a self-signed certificate for local development:
+
+```bash
+mkdir certs
+openssl req -x509 -out certs/localhost.crt -keyout certs/localhost.key \
+  -newkey rsa:2048 -nodes -sha256 -subj '/CN=localhost' \
+  -extensions EXT -config <(printf "[dn]\nCN=localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")
+```
+
+Then start the stack:
+
+```bash
+docker compose up
+```

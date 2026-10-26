@@ -1,0 +1,382 @@
+---
+title: "NiceGUI Core Concepts: Mental Models and Architecture"
+sidebarTitle: "Concepts"
+description: "Understand NiceGUI's mental model: no virtual DOM, shared state, the slot stack, bindings, async, storage scopes, and the Outbox batching system."
+---
+
+NiceGUI's API is shaped by a small set of architectural decisions. Understanding these mental models up front prevents the most common bugs and explains why the framework works the way it does. This page covers each one with concrete examples of the patterns to prefer — and the pitfalls to avoid.
+
+## 1. There Is No Virtual DOM
+
+React and similar frameworks maintain a virtual DOM and diff it against the real DOM on every render, patching only what changed. NiceGUI has no such diffing layer. When you delete and recreate elements, NiceGUI literally destroys Vue components on the client and creates new ones from scratch.
+
+**Consequences:**
+- Rebuilding a subtree loses focus, scroll position, animation state, and any client-side state.
+- For simple value changes, update **in place** using `.set_text()`, `.set_value()`, or bindings instead of recreating elements.
+- When you genuinely need to rebuild a section (e.g., a dynamic list), use `@ui.refreshable` — it handles clearing and rebuilding safely with a single call.
+
+```python
+from nicegui import ui
+
+# BAD: destroys and recreates the label on every click
+count = 0
+container = ui.column()
+
+def increment_bad():
+    global count
+    count += 1
+    container.clear()
+    with container:
+        ui.label(f'Count: {count}')
+
+# GOOD: updates the existing element in place
+label = ui.label('Count: 0')
+count = 0
+
+def increment_good():
+    global count
+    count += 1
+    label.set_text(f'Count: {count}')
+
+ui.button('Increment (bad)', on_click=increment_bad)
+ui.button('Increment (good)', on_click=increment_good)
+ui.run()
+```
+
+For sections that genuinely need full rebuilds, `@ui.refreshable` is the right tool:
+
+```python
+from nicegui import ui
+
+items = ['Apple', 'Banana']
+
+@ui.refreshable
+def item_list():
+    for item in items:
+        ui.label(item)
+
+item_list()  # initial render
+
+def add_item():
+    items.append('Cherry')
+    item_list.refresh()  # clears and safely rebuilds
+
+ui.button('Add item', on_click=add_item)
+ui.run()
+```
+
+## 2. Module-Level State Is Shared Across All Users
+
+NiceGUI runs as a single Python process. Module-level variables are shared between **every connected browser tab and every user**. This is the most common source of subtle multi-user bugs.
+
+<Warning>
+  A module-level list, dict, or object is global to the entire server. If one user modifies it, all other users see the change immediately.
+</Warning>
+
+```python
+from nicegui import ui
+
+# BUG: all users share the same list — last writer wins
+items = []
+
+@ui.page('/')
+def index_bad():
+    ui.button('Add', on_click=lambda: items.append('x'))  # shared!
+    ui.label(str(items))
+
+ui.run()
+```
+
+```python
+from nicegui import ui
+
+# CORRECT: state is local to each page invocation = per user
+@ui.page('/')
+def index_good():
+    items = []  # local to this function call
+
+    @ui.refreshable
+    def show():
+        ui.label(str(items))
+
+    show()
+    ui.button('Add', on_click=lambda: (items.append('x'), show.refresh()))
+
+ui.run()
+```
+
+For state that should **persist across page reloads** for the same user, use `app.storage.user`:
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    app.storage.user['visit_count'] = app.storage.user.get('visit_count', 0) + 1
+    ui.label(f'You have visited {app.storage.user["visit_count"]} time(s).')
+
+ui.run(storage_secret='my-secret')
+```
+
+## 3. `@ui.page` Runs Once Per Page Load
+
+Each time a user navigates to a `@ui.page` route, the decorated function runs exactly once, building the entire page. It is **not** called again when state changes. All subsequent UI updates happen through bindings, `@ui.refreshable`, direct element mutation (`.set_text()`, `.visible = False`, etc.), or timers.
+
+```python
+from nicegui import ui
+
+@ui.page('/dashboard')
+def dashboard():
+    # This function body runs once per visitor, once per navigation.
+    # Returning from it does NOT mean the page stops updating —
+    # bindings, timers, and background tasks continue to run.
+    ui.label('Dashboard')
+    counter = ui.label('0')
+    ui.timer(1.0, lambda: counter.set_text(str(int(counter.text) + 1)))
+
+ui.run()
+```
+
+<Note>
+  The page builder function has a default 3-second timeout (`response_timeout=3`). If it takes longer, the browser receives an error. Perform heavy work (database queries, API calls) in a background task that runs after the page skeleton is delivered.
+</Note>
+
+```python
+from nicegui import background_tasks, ui
+
+@ui.page('/')
+async def index():
+    spinner = ui.spinner()
+    label = ui.label()
+
+    async def load():
+        import asyncio
+        await asyncio.sleep(2)  # simulate slow I/O
+        spinner.delete()
+        label.set_text('Data loaded!')
+
+    background_tasks.create(load())
+    # Page is delivered immediately; load() runs in the background
+
+ui.run()
+```
+
+## 4. The Slot Stack — How Context Managers Place Elements
+
+When you write `with ui.row(): ui.label('x')`, the label becomes a child of the row automatically. This works via a **thread-local slot stack**:
+
+- `with element:` pushes the element's default slot onto the stack.
+- Any element created inside the `with` block is registered as a child of that slot.
+- `__exit__` pops the slot off the stack.
+
+```python
+from nicegui import ui
+
+with ui.row():
+    ui.button('A')  # child of row
+    ui.button('B')  # child of row
+
+ui.label('I am at page root')  # NOT inside the row
+
+# You can re-enter a container's context after creation:
+row = ui.row()
+with row:
+    ui.label('Added later')  # still a valid child of row
+
+ui.run()
+```
+
+<Warning>
+  You cannot move an element to a different parent after it has been created. If you need to reorganize elements, delete and recreate them inside a `@ui.refreshable`.
+</Warning>
+
+The slot stack makes layout code read naturally as nested Python — a direct reflection of the resulting DOM hierarchy.
+
+## 5. The Binding System: Push and Pull
+
+NiceGUI bindings connect element properties to Python objects reactively. Under the hood, two complementary mechanisms drive propagation:
+
+- **Push**: assigning to a `BindableProperty` (the descriptor used for element attributes like `value`, `text`, and `visible`) propagates synchronously through all linked bindings immediately.
+- **Pull**: a refresh loop runs every `binding_refresh_interval` (default `0.1 s`) and re-checks `active_links` — this is what makes bindings work against plain `dict` keys and ordinary object attributes that have no setter to hook into.
+
+In practice:
+- Binding a `ui.input` to a plain dataclass attribute → the pull loop picks up changes within ~100 ms.
+- Binding between two NiceGUI elements (both use `BindableProperty`) → propagation is synchronous.
+- You do not need to call `.update()` after a bound assignment; either the descriptor or the refresh loop handles it.
+
+```python
+from nicegui import ui
+
+
+class State:
+    name: str = 'Alice'
+    visible: bool = True
+
+
+state = State()
+
+# Two-way: element ↔ object
+ui.input('Name').bind_value(state, 'name')
+
+# One-way: object → label (with transform)
+ui.label().bind_text_from(state, 'name', backward=lambda v: f'Hello, {v}!')
+
+# Visibility binding
+ui.label('I can be hidden').bind_visibility_from(state, 'visible')
+ui.switch('Show label').bind_value(state, 'visible')
+
+ui.run()
+```
+
+<Tip>
+  You can raise `binding_refresh_interval` in `ui.run()` to reduce CPU usage if you have many bindings against plain Python objects and a low update rate is acceptable.
+</Tip>
+
+## 6. Async: The Event Loop Is Shared
+
+NiceGUI runs in a single asyncio event loop. Every page, every user, and every timer share it. **Blocking the loop freezes the entire application for all users.**
+
+| Situation | Wrong | Right |
+|---|---|---|
+| Wait between steps | `time.sleep(5)` | `await asyncio.sleep(5)` |
+| Blocking HTTP call | `requests.get(url)` in async handler | `await run.io_bound(requests.get, url)` |
+| CPU-heavy work | any blocking computation | `await run.cpu_bound(fn, data)` |
+| Fire-and-forget task | `asyncio.create_task(coro())` | `background_tasks.create(coro())` |
+
+```python
+from nicegui import run, ui
+
+
+@ui.page('/')
+async def index():
+    result = ui.label('Fetching…')
+
+    async def fetch():
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.get('https://httpbin.org/get')
+        result.set_text(resp.json()['url'])
+
+    ui.button('Fetch', on_click=fetch)
+
+
+ui.run()
+```
+
+### `run.io_bound` and `run.cpu_bound`
+
+```python
+from nicegui import run, ui
+import requests  # synchronous library
+
+
+@ui.page('/io')
+async def io_example():
+    label = ui.label('Waiting…')
+
+    async def load():
+        # Runs in a thread pool — does not block the event loop
+        response = await run.io_bound(requests.get, 'https://httpbin.org/get')
+        label.set_text(str(response.status_code))
+
+    ui.button('Load', on_click=load)
+
+
+ui.run()
+```
+
+<Warning>
+  `run.cpu_bound` runs the function in a separate process. Arguments and return values must be picklable. Pass module-level functions — not lambdas or closures.
+</Warning>
+
+### `background_tasks.create()`
+
+Use `background_tasks.create()` instead of bare `asyncio.create_task()`. It keeps a hard reference to the task (preventing garbage collection cancellation) and routes unhandled exceptions through NiceGUI's exception handler.
+
+```python
+from nicegui import background_tasks, ui
+
+
+@ui.page('/')
+async def index():
+    label = ui.label('Working…')
+
+    async def long_work():
+        import asyncio
+        await asyncio.sleep(3)
+        label.set_text('Done!')
+
+    background_tasks.create(long_work(), name='long-work')
+
+
+ui.run()
+```
+
+## 7. Storage Scopes
+
+Choose the right storage scope based on lifetime and sharing requirements:
+
+| Storage | Scope | Persistence |
+|---|---|---|
+| local variable in `@ui.page` | per page load | until page reload |
+| `app.storage.client` | per browser connection | lost on page reload |
+| `app.storage.tab` | per browser tab | survives reload; lost when tab closes |
+| `app.storage.user` | per user (session cookie) | until cookie expires |
+| `app.storage.browser` | per browser (read-only outside initial request) | until cookie expires |
+| `app.storage.general` | all users | persistent on disk |
+| module-level variable | entire server process | until server restart |
+
+<Note>
+  `app.storage.user` and `app.storage.browser` require a `storage_secret` in `ui.run()`: `ui.run(storage_secret='my-secret')`.
+</Note>
+
+```python
+from nicegui import app, ui
+
+
+@ui.page('/')
+def index():
+    # Per-user counter that survives page reloads
+    app.storage.user['visits'] = app.storage.user.get('visits', 0) + 1
+    ui.label(f'Visit count: {app.storage.user["visits"]}')
+
+    # Global counter shared across all users
+    app.storage.general['total'] = app.storage.general.get('total', 0) + 1
+    ui.label(f'Total visits across all users: {app.storage.general["total"]}')
+
+
+ui.run(storage_secret='change-me-in-production')
+```
+
+## 8. The Outbox — Automatic Batching of Updates
+
+NiceGUI accumulates all element changes within a single event handler execution and sends them in **one WebSocket message**. You do not need to batch updates manually within a callback.
+
+```python
+from nicegui import ui
+
+
+@ui.page('/')
+def index():
+    a = ui.label('A')
+    b = ui.label('B')
+    c = ui.label('C')
+
+    def update_all():
+        # All three updates are collected into one outgoing WebSocket message —
+        # the browser receives them atomically, with no intermediate flicker.
+        a.set_text('A updated')
+        b.set_text('B updated')
+        c.set_text('C updated')
+
+    ui.button('Update all', on_click=update_all)
+
+
+ui.run()
+```
+
+<Tip>
+  Updates from **different** async callbacks or separate timer ticks are sent as separate WebSocket messages. The Outbox only batches within a single synchronous execution context.
+</Tip>
+
+Updates from different async callbacks or timer ticks are sent separately, so very high-frequency timers (e.g. every 10 ms) will each generate their own message. If you need high-frequency streaming data, consider pushing batches of data points in a single callback rather than firing the timer more often.

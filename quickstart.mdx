@@ -1,47 +1,143 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Quickstart: Build and Run Your First NiceGUI App Now"
+sidebarTitle: "Quickstart"
+description: "Install NiceGUI, write your first Python UI with a label and button, run it locally, and open it in the browser — all in four steps."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+NiceGUI lets you go from a blank file to a running browser UI in minutes. This guide walks you through installation, a minimal working example, and a slightly richer app that demonstrates pages, layout, inputs, and data binding. No frontend knowledge required.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+## Basic Setup
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Install NiceGUI">
+    NiceGUI is available on PyPI. Install it with pip:
 
     ```bash
-    npm install your-package
+    pip install nicegui
+    ```
+
+    Python 3.10 or newer is required. See [Installation](/installation) for conda, Docker, and optional extras.
+  </Step>
+
+  <Step title="Create main.py">
+    Create a file called `main.py` with the following content:
+
+    ```python
+    from nicegui import ui
+
+    ui.label('Hello, NiceGUI!')
+    ui.button('Press me', on_click=lambda: ui.notify('Button was pressed!'))
+
+    ui.run()
+    ```
+
+    - `ui.label` renders a text element.
+    - `ui.button` renders a clickable button; `on_click` is a plain Python callable.
+    - `ui.notify` shows a brief toast notification in the browser.
+    - `ui.run()` starts the FastAPI/Uvicorn server and (by default) opens a browser tab automatically.
+  </Step>
+
+  <Step title="Run the app">
+    ```bash
+    python main.py
+    ```
+
+    You will see output similar to:
+
+    ```
+    NiceGUI ready to go on http://localhost:8080
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+  <Step title="Open the browser">
+    Navigate to [http://localhost:8080](http://localhost:8080). You should see the label and button. Click the button — a notification appears in the corner of the page.
 
-    ```bash
-    your-cli start
-    ```
+    <Tip>
+      NiceGUI watches your source files and **automatically reloads the browser** when you save a change. You do not need to restart the server during development.
+    </Tip>
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## A More Complete Example
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+The snippet below introduces several concepts you will use in real apps: the `@ui.page` decorator, layout containers (`ui.row`, `ui.column`), an input element, and two-way data binding.
+
+```python
+from nicegui import ui
+
+
+@ui.page('/')
+def index():
+    # module-level state would be shared across all users;
+    # declaring it here makes it per-visitor
+    name = {'value': 'World'}
+
+    with ui.column().classes('p-4 gap-4'):
+        ui.label('Greeting demo').classes('text-xl font-bold')
+
+        with ui.row().classes('items-center gap-2'):
+            ui.label('Name:')
+            name_input = ui.input(
+                placeholder='Enter your name',
+                on_change=lambda e: greeting.set_text(f'Hello, {e.value}!'),
+            )
+
+        greeting = ui.label(f'Hello, {name["value"]}!')
+
+        ui.button(
+            'Reset',
+            on_click=lambda: (
+                name_input.set_value(''),
+                greeting.set_text('Hello, !'),
+            ),
+        )
+
+
+ui.run(title='Greeting Demo')
+```
+
+Key patterns demonstrated here:
+
+| Pattern | What it shows |
+|---|---|
+| `@ui.page('/')` | Each browser visit runs this function once, creating an isolated scope per user |
+| `with ui.column():` | Context manager — child elements are placed inside the column automatically |
+| `ui.input(on_change=...)` | Input element whose `on_change` callback fires on every keystroke |
+| `element.set_text(...)` | In-place update — updates the existing element without destroying and recreating it |
+
+### Binding variant
+
+The same greeting can be written with NiceGUI's declarative binding system, removing the manual callback:
+
+```python
+from nicegui import ui
+
+
+@ui.page('/binding')
+def binding_demo():
+    class State:
+        name: str = 'World'
+
+    state = State()
+
+    with ui.column().classes('p-4 gap-4'):
+        ui.input('Name').bind_value(state, 'name')
+        ui.label().bind_text_from(
+            state, 'name', backward=lambda v: f'Hello, {v}!'
+        )
+
+
+ui.run()
+```
+
+`bind_value` establishes a two-way link between the input and `state.name`. `bind_text_from` derives the label's text from `state.name` through a transform function. Both update automatically — no `on_change` handler needed.
+
+<Note>
+  Hot reload is enabled by default (`reload=True` in `ui.run()`). It only watches `*.py` files in the current directory. To disable it in production, pass `reload=False`.
+</Note>
+
+## Next Steps
+
+- Read [Concepts](/concepts) to understand NiceGUI's mental model — how state, bindings, async, and the slot stack work together.
+- Browse the [Installation](/installation) page for Docker, conda, and optional extras like Plotly and native desktop mode.
+- Explore the full component reference at [nicegui.io/documentation](https://nicegui.io/documentation).

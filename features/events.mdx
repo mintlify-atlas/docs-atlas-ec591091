@@ -1,0 +1,331 @@
+---
+title: "NiceGUI Events: Handlers, Keyboard & App Lifecycle"
+sidebarTitle: "Events"
+description: "Handle NiceGUI click, change, and keyboard events with sync or async Python callbacks, ui.on() global listeners, and app lifecycle hooks."
+---
+
+NiceGUI connects browser interactions to Python callbacks over a persistent WebSocket. When the user clicks a button, types in an input, or presses a key, the browser serializes the event and sends it to the server, where your Python handler runs — synchronously or asynchronously.
+
+## Constructor Callbacks
+
+The most common way to handle events is through constructor keyword arguments. Every interactive element accepts `on_<event>` parameters:
+
+```python
+from nicegui import ui
+
+# Click
+ui.button('Save', on_click=lambda: ui.notify('Saved!', type='positive'))
+
+# Value change
+ui.input('Name', on_change=lambda e: print(f'New value: {e.value}'))
+ui.slider(min=0, max=100, on_change=lambda e: label.set_text(str(e.value)))
+ui.select(['a', 'b', 'c'], on_change=lambda e: print(e.value))
+ui.checkbox('Agree', on_change=lambda e: print(e.value))
+
+# Input focus/blur
+ui.input(
+    'Email',
+    on_focus=lambda: print('focused'),
+    on_blur=lambda: print('blurred'),
+)
+
+# File upload
+ui.upload(on_upload=lambda e: print(e.file.filename))
+```
+
+---
+
+## Event Argument Objects
+
+Event handlers can optionally accept a single argument — the event object. If your handler takes no arguments, NiceGUI calls it without arguments. If it takes one argument, the event object is passed.
+
+```python
+from nicegui import ui
+
+def on_change(e):
+    print(f'value={e.value}')
+    print(f'sender={e.sender}')   # the element that fired the event
+    print(f'client={e.client}')   # the Client (browser connection)
+
+ui.input('Name', on_change=on_change)
+```
+
+### Common Event Types
+
+| Class | Key attributes | Fired by |
+|-------|---------------|----------|
+| `ClickEventArguments` | `sender`, `client` | buttons, interactive images |
+| `ValueChangeEventArguments` | `value`, `previous_value`, `sender`, `client` | inputs, sliders, checkboxes |
+| `KeyEventArguments` | `key`, `action`, `modifiers`, `sender`, `client` | `ui.keyboard` |
+| `MouseEventArguments` | `type`, `image_x`, `image_y`, `button`, `buttons`, `alt`, `ctrl`, `meta`, `shift` | `ui.interactive_image` |
+| `GenericEventArguments` | `args` (raw payload), `sender`, `client` | `element.on(type, handler)` |
+| `UploadEventArguments` | `file`, `sender`, `client` | `ui.upload` |
+| `ScrollEventArguments` | `vertical_position`, `vertical_percentage`, `vertical_size`, … | `ui.scroll_area` |
+
+### `ValueChangeEventArguments` in Detail
+
+```python
+from nicegui import ui
+from nicegui.events import ValueChangeEventArguments
+
+def track_change(e: ValueChangeEventArguments):
+    print(f'{e.previous_value!r} → {e.value!r}')
+
+ui.input('Text', on_change=track_change)
+ui.slider(min=0, max=10, on_change=track_change)
+```
+
+---
+
+## The `.on()` Method for Any DOM Event
+
+Use `.on()` to subscribe to any DOM or Vue event that NiceGUI doesn't expose as a constructor parameter.
+
+```python
+from nicegui import ui
+
+# Mouseover / hover
+ui.label('Hover me').on('mouseover', lambda: print('hovered'))
+
+# Right-click (contextmenu)
+ui.image('/img/photo.jpg').on('contextmenu', lambda e: print(e.args))
+
+# Pass only specific event fields to reduce WebSocket payload
+ui.image('/img/canvas.png').on(
+    'click',
+    lambda e: print(f'clicked at {e.args["offsetX"]}, {e.args["offsetY"]}'),
+    args=['offsetX', 'offsetY'],  # only these keys are sent from the browser
+)
+
+# Throttle high-frequency events (at most once per 200 ms)
+ui.input().on('keydown', lambda e: print(e.args), throttle=0.2)
+
+# Pure client-side handler — no server round-trip
+ui.button('Alert').on('click', js_handler='() => alert("Hello from JS!")')
+```
+
+---
+
+## `ui.on()` — Global Page-Level Listener
+
+`ui.on()` attaches a listener to the root layout element of the current page. Use it for custom events emitted via `ui.run_javascript` or Quasar component events that no specific element owns.
+
+```python
+from nicegui import ui
+from nicegui.functions.on import on as ui_on
+
+@ui.page('/')
+def page():
+    # Listen for a custom event emitted elsewhere
+    ui_on('my-custom-event', lambda e: print(e.args))
+
+    # Throttle + leading/trailing control
+    ui_on(
+        'resize',
+        lambda e: print('resized'),
+        throttle=0.5,
+        leading_events=True,
+        trailing_events=False,
+    )
+```
+
+### Full signature
+
+```python
+ui.on(
+    type: str,                            # Event name
+    handler: Callable | None = None,      # Python callback
+    args: list[str] | None = None,        # Subset of event keys to forward
+    *,
+    throttle: float = 0.0,               # Min seconds between calls
+    leading_events: bool = True,          # Fire on first occurrence
+    trailing_events: bool = True,         # Fire after last in throttle window
+)
+```
+
+---
+
+## Keyboard Events
+
+`ui.keyboard` is a dedicated element that captures global keyboard events for the page.
+
+```python
+from nicegui import ui
+from nicegui.events import KeyEventArguments
+
+def handle_key(e: KeyEventArguments):
+    combo = '+'.join(filter(None, [
+        'Ctrl'  if e.modifiers.ctrl  else '',
+        'Shift' if e.modifiers.shift else '',
+        'Alt'   if e.modifiers.alt   else '',
+        str(e.key),
+    ]))
+    if e.action.keydown:
+        ui.notify(f'Pressed: {combo}')
+
+@ui.page('/')
+def page():
+    ui.keyboard(on_key=handle_key)
+    ui.label('Press any key combination')
+```
+
+### `KeyboardKey` Convenience Properties
+
+The `e.key` object has boolean shortcut properties:
+
+```python
+def on_key(e: KeyEventArguments):
+    if e.action.keydown:
+        if e.key.enter:        print('Enter pressed')
+        if e.key.escape:       print('Escape pressed')
+        if e.key.arrow_up:     print('Up arrow')
+        if e.key.is_cursorkey: print('Any arrow key')
+        if e.key == 'a':       print('The letter a')  # str comparison works
+        if e.key.number == 5:  print('Digit 5')
+```
+
+### `KeyboardAction` and `KeyboardModifiers`
+
+```python
+e.action.keydown   # True on key press
+e.action.keyup     # True on key release
+e.action.repeat    # True when key is held down
+
+e.modifiers.ctrl
+e.modifiers.shift
+e.modifiers.alt
+e.modifiers.meta   # Cmd on macOS, Win key on Windows
+```
+
+---
+
+## Mouse Events on `ui.interactive_image`
+
+`ui.interactive_image` fires `MouseEventArguments` with image-relative coordinates:
+
+```python
+from nicegui import ui
+from nicegui.events import MouseEventArguments
+
+def on_mouse(e: MouseEventArguments):
+    ui.notify(
+        f'{e.type} at ({e.image_x:.0f}, {e.image_y:.0f}) '
+        f'button={e.button}'
+    )
+
+@ui.page('/')
+def page():
+    ui.interactive_image(
+        'https://picsum.photos/800/600',
+        on_mouse=on_mouse,
+        events=['click', 'mousemove'],
+        cross=True,
+    )
+```
+
+---
+
+## Async Event Handlers
+
+Async handlers are first-class citizens. NiceGUI detects `async def` functions and schedules them as background tasks automatically.
+
+```python
+from nicegui import ui
+import asyncio
+
+@ui.page('/')
+def page():
+    result = ui.label('Result: –')
+
+    async def fetch_and_display():
+        result.set_text('Loading…')
+        await asyncio.sleep(1.5)          # replace with real async I/O
+        result.set_text('Result: 42')
+
+    ui.button('Fetch', on_click=fetch_and_display)
+```
+
+<Warning>
+**Never call `time.sleep()` inside an event handler** — it blocks the entire asyncio event loop, freezing every user's page. Use `await asyncio.sleep()` or `await run.io_bound(blocking_fn, *args)` instead.
+</Warning>
+
+### Awaiting a One-Time Event
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+async def page():
+    btn = ui.button('Confirm')
+    await btn.clicked()            # suspends until the user clicks
+    ui.notify('Confirmed!')
+```
+
+---
+
+## App-Level Lifecycle Events
+
+These hooks fire once for the entire server process (not per page load):
+
+```python
+from nicegui import app, ui
+
+app.on_startup(lambda: print('Server started'))
+app.on_shutdown(lambda: print('Server stopping'))
+
+# Per-client connection events
+def on_connect(client):
+    print(f'Client {client.id} connected')
+
+def on_disconnect(client):
+    print(f'Client {client.id} disconnected')
+
+app.on_connect(on_connect)
+app.on_disconnect(on_disconnect)
+
+# Unhandled exception anywhere in the app
+def on_exception(e: Exception):
+    print(f'Exception: {e}')
+
+app.on_exception(on_exception)
+app.on_page_exception(on_exception)  # only exceptions in @ui.page builders
+
+ui.run()
+```
+
+<Note>
+`app.on_exception` catches exceptions from any context (timers, background tasks, page builders). `app.on_page_exception` is narrower — it only catches exceptions thrown directly inside `@ui.page` builder functions, before the page is delivered.
+
+For per-page exception handling use `ui.on_exception` inside a `@ui.page` function.
+</Note>
+
+---
+
+## Sync vs. Async Handler Reference
+
+```python
+from nicegui import ui, run
+
+# Synchronous handler — fine for quick, non-blocking work
+def sync_handler():
+    ui.notify('Done instantly')
+
+# Async handler — for I/O-bound work
+async def async_io_handler():
+    import httpx
+    async with httpx.AsyncClient() as client:
+        resp = await client.get('https://api.example.com/data')
+    ui.notify(resp.json()['result'])
+
+# Blocking I/O wrapped for async context
+async def wrapped_blocking():
+    import requests
+    data = await run.io_bound(requests.get, 'https://api.example.com/data')
+    ui.notify(str(data.status_code))
+
+@ui.page('/')
+def page():
+    ui.button('Sync',    on_click=sync_handler)
+    ui.button('Async',   on_click=async_io_handler)
+    ui.button('Wrapped', on_click=wrapped_blocking)
+```

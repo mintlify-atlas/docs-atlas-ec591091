@@ -1,0 +1,309 @@
+---
+title: "Building Custom Components in NiceGUI"
+sidebarTitle: "Custom Components"
+description: "Create custom HTML elements, wrap Vue single-file components, load ES modules, serve static assets, and extend NiceGUI's Element base class."
+---
+
+NiceGUI ships a rich library of built-in elements, but real applications often need something the standard set does not cover — a bespoke chart widget, a branded toggle switch, or a third-party JavaScript component. NiceGUI gives you several escalating levels of customisation: from a simple arbitrary-HTML wrapper up to a full Vue single-file component with scoped CSS and reactive props.
+
+## Arbitrary HTML Elements with `ui.element()`
+
+The simplest escape hatch is `ui.element(tag)`. Pass any valid HTML or custom-element tag name, and NiceGUI creates a DOM node with that tag. You can then chain `.classes()`, `.style()`, `.props()`, and `.on()` just like on any other element:
+
+```python
+from nicegui import ui
+
+# Native HTML5 elements
+with ui.element('details'):
+    ui.element('summary').classes('cursor-pointer font-bold').html('Click to expand')
+    ui.label('Hidden content revealed on click.')
+
+# Quasar components not yet wrapped by NiceGUI
+with ui.element('q-timeline').props('color=primary layout=comfortable side=right'):
+    with ui.element('q-timeline-entry').props('title="Step 1" subtitle="Today"'):
+        ui.label('Initial setup completed.')
+```
+
+---
+
+## Custom Vue Components via `.vue` Files
+
+For anything more complex — reactive state, scoped styles, custom events — write a [Vue single-file component](https://vuejs.org/guide/scaling-up/sfc.html) (`.vue`) and register it by subclassing `ui.element` with the `component=` keyword argument. NiceGUI uses its built-in `vbuild` parser to extract the `<template>`, `<script>`, and `<style>` sections; no Webpack or Vite build step is required.
+
+### Step 1 — Write the Vue component
+
+```html
+<!-- on_off.vue -->
+<template>
+  <div>
+    <button @click="handle_click" :class="{ active: value }">
+      <strong>{{ title }}: {{ value ? "ON" : "OFF" }}</strong>
+    </button>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    title: String,
+  },
+  data() {
+    return { value: false };
+  },
+  methods: {
+    handle_click() {
+      this.value = !this.value;
+      this.$emit("change", this.value);
+    },
+    reset() {
+      this.value = false;
+    },
+  },
+};
+</script>
+
+<style scoped>
+button {
+  background-color: #eee;
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+button.active {
+  background-color: #fb8;
+}
+</style>
+```
+
+### Step 2 — Create a Python wrapper class
+
+```python
+# on_off.py
+from collections.abc import Callable
+from nicegui import ui
+
+class OnOff(ui.element, component='on_off.vue'):
+
+    def __init__(self, title: str, *, on_change: Callable | None = None) -> None:
+        super().__init__()
+        self._props['title'] = title
+        self.on('change', on_change)
+
+    def reset(self) -> None:
+        """Call the Vue component's reset() method from Python."""
+        self.run_method('reset')
+```
+
+### Step 3 — Use it in your app
+
+```python
+# main.py
+from on_off import OnOff
+from nicegui import ui
+
+with ui.row(align_items='center'):
+    toggle = OnOff('State', on_change=lambda e: ui.notify(f'Value → {e.args}'))
+    ui.button('Reset', on_click=toggle.reset).props('outline')
+
+ui.run(uvicorn_reload_includes='*.py,*.vue')
+```
+
+<Note>
+  The `component=` path is resolved relative to the Python file that **defines the subclass**, so you can keep the `.vue` file next to its Python wrapper. NiceGUI watches `.vue` files and reloads the browser when they change (make sure `uvicorn_reload_includes` includes `*.vue`).
+</Note>
+
+---
+
+## Plain JavaScript Components via `.js` Files
+
+If you prefer Options API or Composition API in plain JS (no single-file component), register a `.js` file instead:
+
+```python
+# counter.py
+from collections.abc import Callable
+from nicegui import ui
+
+class Counter(ui.element, component='counter.js'):
+
+    def __init__(self, title: str, *, on_change: Callable | None = None) -> None:
+        super().__init__()
+        self._props['title'] = title
+        self.on('change', on_change)
+
+    def reset(self) -> None:
+        self.run_method('reset')
+```
+
+```javascript
+// counter.js
+export default {
+  template: `
+    <div>
+      <button @click="increment">{{ title }}: {{ count }}</button>
+    </div>`,
+  props: { title: String },
+  data() { return { count: 0 }; },
+  methods: {
+    increment() { this.count++; this.$emit('change', this.count); },
+    reset()     { this.count = 0; },
+  },
+};
+```
+
+---
+
+## ES Module Loading with `register_esm()`
+
+`register_esm()` lets you load an ES module from a URL or a local file and make it available to **all** components as a named import. This is the right approach for shared utilities, icon sets, or third-party libraries distributed as ESM.
+
+```python
+from nicegui import ui
+from nicegui.dependencies import register_esm
+
+# Register a local ESM helper
+register_esm('myUtils', '/path/to/utils.js')
+
+# Now any Vue component can import it:
+# import { formatDate } from 'myUtils'
+```
+
+You can also wire up ESM in `__init_subclass__` via the `esm=` dictionary:
+
+```python
+from pathlib import Path
+from nicegui import ui
+
+class MyWidget(ui.element, component='widget.vue', esm={'d3': 'vendor/d3.min.js'}):
+    def __init__(self) -> None:
+        super().__init__()
+```
+
+---
+
+## Extending the `Element` Base Class
+
+`Element` is the root of every NiceGUI widget. Subclass it directly when you want full control over the tag, props, and JS communication without tying yourself to a particular component file.
+
+```python
+from nicegui import ui
+from nicegui.element import Element
+
+class ProgressRing(Element):
+    """A simple SVG progress ring rendered as a plain <div>."""
+
+    def __init__(self, value: float = 0.0) -> None:
+        super().__init__('div')
+        self._props['value'] = value
+        self.classes('progress-ring-container')
+
+    @property
+    def value(self) -> float:
+        return self._props['value']
+
+    @value.setter
+    def value(self, v: float) -> None:
+        self._props['value'] = max(0.0, min(1.0, v))
+        self.update()
+```
+
+### Useful `Element` APIs
+
+| Method / Property | Description |
+|---|---|
+| `self._props['key'] = value` | Set a Vue prop sent to the component |
+| `self._classes` | Manage CSS classes |
+| `self._style` | Manage inline styles |
+| `self.update()` | Push state changes to the client |
+| `self.run_method('name', *args)` | Call a Vue method on the client |
+| `self.on('event', handler)` | Subscribe to a Vue `$emit` event |
+| `self.add_slot('name')` | Add a named Vue slot |
+| `self.add_resource(path)` | Serve a local folder as a static resource |
+
+---
+
+## Serving Static Assets
+
+### `app.add_static_files()`
+
+Mount a local directory at a URL path so the browser can fetch files from it:
+
+```python
+from nicegui import app, ui
+
+app.add_static_files('/assets', 'static')
+
+@ui.page('/')
+def index():
+    ui.image('/assets/logo.png')
+```
+
+### `app.add_static_file()`
+
+Expose a single file at a specific (or auto-generated) URL:
+
+```python
+from nicegui import app
+
+url = app.add_static_file(local_file='data/report.pdf')
+# url is now something like '/_nicegui/auto/static/<hash>/report.pdf'
+```
+
+### `app.add_media_files()`
+
+For audio, video, or any file that should be **streamed** with range-request support:
+
+```python
+from nicegui import app, ui
+
+app.add_media_files('/media', 'recordings')
+
+@ui.page('/')
+def index():
+    ui.video('/media/demo.mp4')
+```
+
+<Warning>
+  Files served via `add_static_files()` and `add_media_files()` are publicly accessible to everyone who can reach the server. Never serve sensitive data through these helpers.
+</Warning>
+
+---
+
+## `ui.teleport()` — Rendering Outside the Current Tree
+
+`ui.teleport()` moves the elements created inside it to a different place in the DOM (a Vue [Teleport](https://vuejs.org/guide/built-ins/teleport)). Use it to append content to `body`, a specific drawer, or any CSS selector target — even if the target was not created by NiceGUI:
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def index():
+    with ui.header():
+        ui.label('App Title')
+
+    # Teleport a notification badge into the header from anywhere in the tree
+    with ui.teleport('.q-header'):
+        ui.badge('3').props('color=negative floating')
+
+    ui.label('Main content area')
+```
+
+---
+
+## Summary
+
+<Steps>
+  <Step title="Quick HTML wrapper">
+    Use `ui.element('tag')` for one-off HTML or Quasar tags without any Python boilerplate.
+  </Step>
+  <Step title="Vue single-file component">
+    Write a `.vue` file and register it with `class MyWidget(ui.element, component='widget.vue')` for full reactivity and scoped styles.
+  </Step>
+  <Step title="Python class wrapper">
+    Subclass `ui.element` (or `Element` directly) to expose a clean Python API over the Vue component, including `run_method()` for calling Vue methods.
+  </Step>
+  <Step title="Static assets">
+    Serve local directories with `app.add_static_files()` and individual files with `app.add_static_file()`. Stream media with `app.add_media_files()`.
+  </Step>
+  <Step title="ESM modules">
+    Use `register_esm()` to make shared JavaScript modules importable inside any component.
+  </Step>
+</Steps>

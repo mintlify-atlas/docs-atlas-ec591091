@@ -1,0 +1,76 @@
+---
+title: "NiceGUI: Build Web UIs with Python, No Frontend Needed"
+sidebarTitle: "Introduction"
+description: "NiceGUI lets you build browser-based UIs entirely in Python, powered by FastAPI, WebSocket, and a Vue 3/Quasar frontend — no HTML or JavaScript required."
+---
+
+NiceGUI is a Python framework for building web-based user interfaces without writing any HTML, CSS, or JavaScript. You describe your UI in pure Python — buttons, inputs, charts, 3D scenes — and NiceGUI handles rendering it in the browser, keeping everything in sync over a persistent WebSocket connection.
+
+## What NiceGUI Solves
+
+Traditional web development requires maintaining a frontend (JavaScript/TypeScript, HTML, CSS) alongside a Python backend. For data scientists, robotics engineers, and rapid prototypers this split is a significant barrier. NiceGUI eliminates it by treating the browser as a display surface while all logic stays in Python.
+
+Compared to alternatives like Streamlit, NiceGUI gives you explicit control over state and layout without magical reruns. You decide when and what updates, making it practical for real-time applications and multi-user deployments.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Pure Python UI" icon="python">
+    Build every part of your interface — labels, buttons, inputs, charts, dialogs, 3D scenes — using only Python. No JavaScript needed.
+  </Card>
+  <Card title="Real-Time Updates" icon="bolt">
+    A persistent WebSocket connection keeps the browser in sync with the server. Push updates instantly from timers, background tasks, or event handlers.
+  </Card>
+  <Card title="Hot Reload" icon="arrows-rotate">
+    NiceGUI automatically detects code changes and reloads the browser during development. No manual restarts required.
+  </Card>
+  <Card title="Rich Component Library" icon="grid-2">
+    Over 60 built-in elements: text, media, tables, AG Grid, ECharts, Plotly, Matplotlib, Leaflet maps, 3D scenes, and more.
+  </Card>
+  <Card title="Reactive Bindings" icon="link">
+    Bind element properties directly to Python objects or dict keys. Changes propagate automatically — no manual `.update()` needed for bound values.
+  </Card>
+  <Card title="FastAPI Integration" icon="server">
+    Built on FastAPI and Uvicorn. Add REST endpoints, middleware, and static file serving alongside your UI with standard FastAPI patterns.
+  </Card>
+  <Card title="Multiple Deployment Modes" icon="rocket">
+    Serve as a web app, embed in an existing FastAPI service, or open as a native desktop window (via pywebview) — all from the same code.
+  </Card>
+  <Card title="Flexible Storage" icon="database">
+    Per-user, per-tab, per-browser, and global persistent storage scopes out of the box. Optionally back user storage with Redis.
+  </Card>
+</CardGroup>
+
+## When to Use NiceGUI
+
+NiceGUI is a strong fit wherever you want a responsive, browser-accessible UI without introducing a separate frontend project:
+
+- **Dashboards and monitoring tools** — live data visualization with timers and real-time chart updates
+- **Robotics and hardware control panels** — send commands and display sensor readings from a single Python process
+- **Machine learning tooling** — tune hyperparameters, inspect model outputs, and annotate datasets interactively
+- **Smart home and IoT interfaces** — lightweight UIs for Raspberry Pi or embedded Linux devices
+- **Internal tools and admin panels** — quickly expose configuration, task queues, or operational controls to a team
+- **Rapid prototyping** — go from an idea to a shareable demo in minutes, then iterate without context-switching
+
+NiceGUI is less appropriate when you need a large client-rendered SPA with complex routing, offline-first behavior, or a public-facing site requiring full SEO control. For those cases a dedicated frontend framework is a better fit.
+
+## Architecture Overview
+
+NiceGUI follows a **backend-first** philosophy: all UI logic lives in Python, and the framework handles web details automatically.
+
+```
+Python (FastAPI/Uvicorn)
+        │
+        │  socket.io over WebSocket
+        ▼
+Vue 3 + Quasar (browser)
+```
+
+1. **Python backend** — your code creates `Element` objects that mirror Vue components. FastAPI handles HTTP and WebSocket connections through a single Uvicorn worker with full async support.
+2. **WebSocket bridge** — after the initial page load, a persistent socket.io connection is established. User interactions (clicks, inputs) are sent to Python; Python-side changes are sent back as batched updates.
+3. **Vue 3 / Quasar frontend** — NiceGUI's client-side runtime receives element updates and patches the live DOM. Quasar provides the component library (buttons, inputs, dialogs); Tailwind CSS handles utility styling.
+4. **Outbox** — element changes within a single Python event handler are accumulated and sent in one WebSocket message, keeping network traffic efficient without any manual batching.
+
+<Note>
+  NiceGUI uses a single Uvicorn worker. Because the entire framework is async, this single process handles all connected users concurrently without multiprocessing overhead. Blocking the asyncio event loop (e.g. with `time.sleep()`) stalls **all** users — always use `await asyncio.sleep()` or `await run.io_bound(...)` for any waiting work.
+</Note>

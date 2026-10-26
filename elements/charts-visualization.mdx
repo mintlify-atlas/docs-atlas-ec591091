@@ -1,0 +1,431 @@
+---
+title: "Charts & Visualization Elements in NiceGUI"
+sidebarTitle: "Charts"
+description: "Render interactive charts in NiceGUI using ECharts, Plotly, Matplotlib, Highcharts, Altair, and live line plots — with real code examples."
+---
+
+NiceGUI integrates with all major Python and JavaScript charting libraries. ECharts and Plotly run in the browser with no extra Python dependencies; Matplotlib and Altair require their respective packages; Highcharts is available as an optional extra. For real-time streaming data, the built-in `ui.line_plot` provides a ready-made live-update pattern.
+
+<Note>
+Optional dependencies must be installed separately. See each element's section for the exact `pip install` command.
+</Note>
+
+---
+
+## `ui.echart`
+
+An Apache ECharts chart element. Pass a standard [ECharts `option` dict](https://echarts.apache.org/en/option.html) and update it in place.
+
+**Constructor**
+
+```python
+ui.echart(
+    options: dict,
+    on_point_click: Handler[EChartPointClickEventArguments] | None = None,
+    *,
+    on_click: Handler[EChartComponentClickEventArguments] | None = None,
+    enable_3d: bool = False,
+    renderer: Literal['canvas', 'svg'] = 'canvas',
+    theme: str | dict | None = None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `options` | `dict` | — | Full ECharts `option` object |
+| `on_point_click` | `Handler \| None` | `None` | Called when a data point is clicked |
+| `on_click` | `Handler \| None` | `None` | Called when any chart component is clicked |
+| `enable_3d` | `bool` | `False` | Load the `echarts-gl` 3D extension |
+| `renderer` | `str` | `'canvas'` | `'canvas'` or `'svg'` |
+| `theme` | `str \| dict \| None` | `None` | ECharts theme name or config dict |
+
+### Bar chart example
+
+```python
+from nicegui import ui
+
+chart = ui.echart({
+    'title': {'text': 'Monthly Sales'},
+    'tooltip': {},
+    'xAxis': {
+        'type': 'category',
+        'data': ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+    },
+    'yAxis': {'type': 'value'},
+    'series': [{
+        'name': 'Sales',
+        'type': 'bar',
+        'data': [820, 932, 901, 934, 1290, 1330],
+        'itemStyle': {'color': '#5470C6'},
+    }],
+})
+
+ui.run()
+```
+
+### Line chart with click callback
+
+```python
+from nicegui import ui
+
+def on_click(e):
+    ui.notify(f'Clicked: {e.name} = {e.value}')
+
+ui.echart(
+    {
+        'xAxis': {'type': 'category', 'data': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']},
+        'yAxis': {'type': 'value'},
+        'series': [{'type': 'line', 'data': [150, 230, 224, 218, 135]}],
+    },
+    on_point_click=on_click,
+)
+
+ui.run()
+```
+
+### Updating a chart reactively
+
+```python
+from nicegui import ui
+import random
+
+chart = ui.echart({
+    'xAxis': {'type': 'category', 'data': ['A', 'B', 'C', 'D']},
+    'yAxis': {'type': 'value'},
+    'series': [{'type': 'bar', 'data': [10, 20, 30, 40]}],
+})
+
+def randomize():
+    chart.options['series'][0]['data'] = [random.randint(5, 100) for _ in range(4)]
+    chart.update()
+
+ui.button('Randomize', on_click=randomize)
+ui.run()
+```
+
+---
+
+## `ui.plotly`
+
+Renders a Plotly chart. Accepts either a `plotly.graph_objects.Figure` object or a plain `dict` with `data` and `layout` keys.
+
+<Note>
+Install Plotly before using this element:
+
+```bash
+pip install nicegui[plotly]
+# or: pip install plotly
+```
+</Note>
+
+**Constructor**
+
+```python
+ui.plotly(figure: dict | go.Figure)
+```
+
+### Dict-based approach (best performance)
+
+```python
+from nicegui import ui
+
+ui.plotly({
+    'data': [{
+        'type': 'bar',
+        'x': ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+        'y': [40, 55, 38, 72, 61],
+        'marker': {'color': '#636EFA'},
+    }],
+    'layout': {
+        'title': {'text': 'Monthly Revenue'},
+        'xaxis': {'title': 'Month'},
+        'yaxis': {'title': 'Revenue ($)'},
+        'margin': {'l': 40, 'r': 20, 't': 40, 'b': 40},
+    },
+})
+
+ui.run()
+```
+
+### `go.Figure` approach
+
+```python
+from nicegui import ui
+import plotly.graph_objects as go
+
+fig = go.Figure(data=[
+    go.Scatter(x=[1, 2, 3, 4], y=[10, 15, 13, 17], mode='lines+markers', name='Series A'),
+    go.Scatter(x=[1, 2, 3, 4], y=[16, 5, 11, 9],  mode='lines+markers', name='Series B'),
+])
+fig.update_layout(title='Multi-Series Line Chart')
+
+ui.plotly(fig)
+ui.run()
+```
+
+---
+
+## `ui.pyplot` / `ui.matplotlib`
+
+Render Matplotlib figures. Two styles are available: the `ui.pyplot` context manager (mirrors `plt.figure`) and `ui.matplotlib` which wraps a `matplotlib.figure.Figure` directly.
+
+<Note>
+Install Matplotlib before using these elements:
+
+```bash
+pip install matplotlib
+```
+</Note>
+
+### `ui.pyplot` — context-manager style
+
+```python
+ui.pyplot(
+    *,
+    close: bool = True,
+    **kwargs,  # forwarded to plt.figure(), e.g. figsize=(8, 4)
+)
+```
+
+```python
+from nicegui import ui
+import matplotlib.pyplot as plt
+import numpy as np
+
+with ui.pyplot(figsize=(7, 3)):
+    x = np.linspace(0, 2 * np.pi, 200)
+    plt.plot(x, np.sin(x), label='sin(x)')
+    plt.plot(x, np.cos(x), label='cos(x)')
+    plt.legend()
+    plt.tight_layout()
+
+ui.run()
+```
+
+### `ui.matplotlib` — figure-object style
+
+```python
+ui.matplotlib(**kwargs)  # kwargs forwarded to Figure()
+```
+
+```python
+from nicegui import ui
+import numpy as np
+
+m = ui.matplotlib(figsize=(6, 3))
+
+with m.figure:
+    ax = m.figure.add_subplot(111)
+    ax.bar(['Q1', 'Q2', 'Q3', 'Q4'], [12, 18, 9, 22])
+    ax.set_title('Quarterly Sales')
+
+ui.run()
+```
+
+### Updating a pyplot dynamically
+
+```python
+from nicegui import ui
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+
+with ui.pyplot(close=False, figsize=(7, 3)) as plot:
+    x = np.linspace(0, 2 * np.pi, 100)
+    line, = plt.gca().plot(x, np.sin(x))
+
+def update():
+    offset = random.uniform(0, np.pi)
+    line.set_ydata(np.sin(x + offset))
+    plot.update()
+
+ui.button('Update', on_click=update)
+ui.run()
+```
+
+---
+
+## `ui.line_plot`
+
+A live-updating line chart built on `ui.pyplot`. Designed for streaming sensor data or metrics — push new samples with `.push()` and pair with `ui.timer` for auto-refresh.
+
+**Constructor**
+
+```python
+ui.line_plot(
+    *,
+    n: int = 1,
+    limit: int = 100,
+    update_every: int = 1,
+    close: bool = True,
+    **kwargs,  # forwarded to plt.figure()
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `n` | `int` | `1` | Number of lines |
+| `limit` | `int` | `100` | Max data points (oldest discarded) |
+| `update_every` | `int` | `1` | Only redraw every N pushes |
+
+**Example**
+
+```python
+from nicegui import ui
+import random, math, time
+
+plot = ui.line_plot(n=2, limit=50, figsize=(7, 3)).with_legend(
+    ['Temperature', 'Humidity'],
+    loc='upper left',
+)
+
+def push():
+    t = time.time()
+    plot.push([t], [
+        [20 + 5 * math.sin(t)],
+        [60 + 10 * math.cos(t * 0.7)],
+    ])
+
+ui.timer(0.1, push)
+
+ui.run()
+```
+
+---
+
+## `ui.highchart`
+
+Renders a [Highcharts](https://www.highcharts.com/) chart. Requires the optional `nicegui-highcharts` package.
+
+<Warning>
+Highcharts has a commercial licence. The NiceGUI integration is maintained in a separate package:
+
+```bash
+pip install nicegui[highcharts]
+```
+</Warning>
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.highchart({
+    'title': {'text': 'Highcharts Example'},
+    'series': [{
+        'name': 'Sales',
+        'data': [43934, 52503, 57177, 69658, 97031],
+    }],
+}).classes('w-full h-64')
+
+ui.run()
+```
+
+---
+
+## `ui.altair`
+
+Wraps an [Altair](https://altair-viz.github.io/) / Vega-Lite chart via `anywidget`. Supports bidirectional parameter binding.
+
+<Note>
+Install Altair before using this element:
+
+```bash
+pip install altair anywidget
+```
+</Note>
+
+**Constructor**
+
+```python
+ui.altair(
+    chart: altair.TopLevelSpec | altair.JupyterChart,
+    *,
+    throttle: float = 0,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+import altair as alt
+import pandas as pd
+
+df = pd.DataFrame({
+    'x': range(1, 11),
+    'y': [2, 4, 3, 8, 5, 9, 6, 11, 8, 13],
+})
+
+chart = alt.Chart(df).mark_line(point=True).encode(
+    x='x:Q',
+    y='y:Q',
+).properties(width=500, height=250)
+
+ui.altair(chart)
+
+ui.run()
+```
+
+---
+
+## Comparison at a glance
+
+<CardGroup cols={2}>
+  <Card title="ui.echart" icon="chart-bar">
+    **Best for:** interactive dashboards, large datasets, built-in tooltips. No extra install needed.
+  </Card>
+  <Card title="ui.plotly" icon="chart-line">
+    **Best for:** scientific plots, 3D surfaces, rich interactivity. Requires `pip install plotly`.
+  </Card>
+  <Card title="ui.pyplot / ui.matplotlib" icon="chart-area">
+    **Best for:** publication-quality static charts, seaborn integration, custom artists. Requires `pip install matplotlib`.
+  </Card>
+  <Card title="ui.line_plot" icon="chart-line">
+    **Best for:** streaming real-time data with minimal code. Built on matplotlib.
+  </Card>
+  <Card title="ui.highchart" icon="chart-bar">
+    **Best for:** enterprise dashboards with a Highcharts licence. Requires `pip install nicegui[highcharts]`.
+  </Card>
+  <Card title="ui.altair" icon="chart-scatter">
+    **Best for:** declarative, grammar-of-graphics style charts. Requires `pip install altair anywidget`.
+  </Card>
+</CardGroup>
+
+---
+
+## Side-by-side example
+
+```python
+from nicegui import ui
+
+# ECharts — no extra dependencies
+ui.label('ECharts bar chart').classes('text-subtitle1')
+ui.echart({
+    'xAxis': {'type': 'category', 'data': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']},
+    'yAxis': {'type': 'value'},
+    'series': [{'type': 'bar', 'data': [120, 200, 150, 80, 70]}],
+    'tooltip': {'trigger': 'axis'},
+}).classes('h-48')
+
+# Plotly — requires pip install plotly
+ui.label('Plotly scatter chart').classes('text-subtitle1 mt-4')
+ui.plotly({
+    'data': [{'type': 'scatter', 'mode': 'markers',
+              'x': [1, 2, 3, 4, 5], 'y': [2, 4, 1, 5, 3],
+              'marker': {'size': 12, 'color': '#EF553B'}}],
+    'layout': {'margin': {'l': 40, 'r': 20, 't': 20, 'b': 40}},
+})
+
+# Matplotlib — requires pip install matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+ui.label('Matplotlib histogram').classes('text-subtitle1 mt-4')
+with ui.pyplot(figsize=(6, 2.5)):
+    data = np.random.normal(0, 1, 1000)
+    plt.hist(data, bins=40, color='steelblue', edgecolor='white')
+    plt.tight_layout()
+
+ui.run()
+```

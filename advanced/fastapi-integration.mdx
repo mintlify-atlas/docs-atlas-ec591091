@@ -1,0 +1,289 @@
+---
+title: "FastAPI Integration with NiceGUI Applications"
+sidebarTitle: "FastAPI Integration"
+description: "Add REST endpoints, middleware, and routers alongside NiceGUI pages, or mount NiceGUI onto an existing FastAPI app with ui.run_with()."
+---
+
+NiceGUI **is** a FastAPI application. The `nicegui.app` object is a subclass of `fastapi.FastAPI`, so every feature of FastAPI — REST routes, dependency injection, middleware, OpenAPI docs, background tasks — works alongside your NiceGUI UI pages with no extra setup. You can either add endpoints directly to `app`, or mount NiceGUI onto your own FastAPI instance using `ui.run_with()`.
+
+## The `app` Object is a FastAPI Instance
+
+Import `app` from `nicegui` and use standard FastAPI decorators to register REST endpoints next to your pages:
+
+```python
+from fastapi import Request
+from nicegui import app, ui
+
+@app.get('/api/status')
+def get_status():
+    return {'status': 'ok', 'version': '1.0'}
+
+@app.post('/api/items')
+async def create_item(request: Request):
+    body = await request.json()
+    return {'created': body}
+
+@ui.page('/')
+def index():
+    ui.label('Hello from NiceGUI!')
+
+ui.run()
+```
+
+<Note>
+  The `app` object disables FastAPI's built-in `/docs`, `/redoc`, and `/openapi.json` by default. Enable them by passing `fastapi_docs=True` (or a configuration dict) to `ui.run()`.
+</Note>
+
+---
+
+## `APIRouter` for Route Groups
+
+Import `APIRouter` from `nicegui` to organize endpoints and NiceGUI pages into reusable routers. It extends `fastapi.APIRouter` with a `.page()` method that mirrors `@ui.page()`:
+
+```python
+# routes/admin.py
+from nicegui import APIRouter, ui
+
+router = APIRouter(prefix='/admin')
+
+@router.get('/stats')
+def admin_stats():
+    return {'users': 42, 'sessions': 7}
+
+@router.page('/dashboard')
+def admin_dashboard():
+    ui.label('Admin Dashboard')
+    ui.button('Refresh stats', on_click=lambda: ui.notify('Refreshed!'))
+```
+
+Include the router from your main file just like with any FastAPI router:
+
+```python
+# main.py
+from nicegui import app, ui
+from routes.admin import router as admin_router
+
+app.include_router(admin_router)
+
+@ui.page('/')
+def index():
+    ui.label('Main page')
+
+ui.run()
+```
+
+---
+
+## Middleware
+
+`app.add_middleware()` works exactly as in FastAPI. Because NiceGUI registers it as a class decorator, you can apply it directly:
+
+```python
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from nicegui import app, ui
+
+unrestricted_routes = {'/favicon.ico', '/login'}
+
+@app.add_middleware
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Redirect unauthenticated users to /login."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        authenticated = app.storage.user.get('authenticated', False)
+        if authenticated or path in unrestricted_routes or path.startswith('/_nicegui'):
+            return await call_next(request)
+        return RedirectResponse(f'/login?redirect_to={path}')
+```
+
+<Warning>
+  Always exempt `/_nicegui/*` paths (NiceGUI's internal assets and WebSocket endpoint) and top-level static files such as `/favicon.ico` from authentication checks to prevent redirect loops.
+</Warning>
+
+---
+
+## Authentication Example
+
+The following is a complete, self-contained authentication example drawn directly from the NiceGUI examples directory. It shows middleware-based protection, persistent user storage, and login/logout flows:
+
+```python
+#!/usr/bin/env python3
+from fastapi import Request
+from fastapi.responses import RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from nicegui import app, ui
+
+# In production, passwords must be hashed — this is illustrative only.
+passwords = {'user1': 'pass1', 'user2': 'pass2'}
+unrestricted_page_routes = {'/favicon.ico', '/login'}
+
+
+@app.add_middleware
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if (
+            app.storage.user.get('authenticated')
+            or path in unrestricted_page_routes
+            or path.startswith('/_nicegui')
+        ):
+            return await call_next(request)
+        return RedirectResponse(f'/login?redirect_to={path}')
+
+
+@ui.page('/')
+def main_page() -> None:
+    def logout() -> None:
+        app.storage.user.clear()
+        ui.navigate.to('/login')
+
+    with ui.column().classes('absolute-center items-center'):
+        ui.label(f'Hello {app.storage.user["username"]}!').classes('text-2xl')
+        ui.button(on_click=logout, icon='logout').props('outline round')
+
+
+@ui.page('/login')
+def login(redirect_to: str = '/') -> RedirectResponse | None:
+    if app.storage.user.get('authenticated'):
+        return RedirectResponse('/')
+
+    def try_login() -> None:
+        if passwords.get(username.value) == password.value:
+            app.storage.user.update(username=username.value, authenticated=True)
+            ui.navigate.to(redirect_to)
+        else:
+            ui.notify('Wrong username or password', color='negative')
+
+    with ui.card().classes('absolute-center items-stretch'):
+        username = ui.input('Username').props('autofocus').on(
+            'keydown.enter', lambda: password.run_method('focus')
+        )
+        password = ui.input('Password', password=True, password_toggle_button=True).on(
+            'keydown.enter', try_login
+        )
+        ui.button('Log in', on_click=try_login)
+
+    return None
+
+
+if __name__ in {'__main__', '__mp_main__'}:
+    ui.run(storage_secret='CHANGE_ME')
+```
+
+---
+
+## Mounting NiceGUI onto an Existing FastAPI App
+
+Use `ui.run_with(fastapi_app)` when you already have a FastAPI application and want to add a NiceGUI UI to it. NiceGUI is mounted at `mount_path` (default `/`):
+
+```python
+#!/usr/bin/env python3
+import uvicorn
+from fastapi import FastAPI
+from nicegui import app, ui
+
+fastapi_app = FastAPI()
+
+@fastapi_app.get('/')
+def get_root():
+    return {'message': 'Hello from FastAPI. Browse to /gui for the NiceGUI app.'}
+
+
+@ui.page('/')
+def show():
+    ui.label('Hello, NiceGUI!')
+    dark = ui.dark_mode()
+    dark.bind_value(app.storage.user, 'dark_mode')
+    ui.checkbox('Dark mode').bind_value(app.storage.user, 'dark_mode')
+
+
+ui.run_with(
+    fastapi_app,
+    mount_path='/gui',          # NiceGUI pages are rooted at /gui
+    storage_secret='secret',    # needed for persistent per-user storage
+)
+
+if __name__ == '__main__':
+    uvicorn.run('main:fastapi_app', log_level='info', reload=True)
+```
+
+<Note>
+  Always call `ui.run_with()` **after** defining your page functions so that the page routes are registered before NiceGUI configures itself. Pass your own FastAPI `app` — not `nicegui.app` — to avoid infinite recursion.
+</Note>
+
+### Key `ui.run_with()` parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `app` | — | Your `FastAPI` instance (required) |
+| `mount_path` | `'/'` | URL prefix where NiceGUI pages are served |
+| `title` | `'NiceGUI'` | Browser tab title |
+| `dark` | `False` | Default dark mode setting |
+| `storage_secret` | `None` | Secret key for `app.storage.user` / `app.storage.browser` |
+| `tailwind` | `True` | Enable Tailwind CSS utility classes |
+
+---
+
+## Mounting Static Files
+
+Both `app.mount()` (Starlette/FastAPI standard) and `app.add_static_files()` (NiceGUI helper) work for serving static directories:
+
+```python
+from nicegui import app, ui
+from fastapi.staticfiles import StaticFiles
+
+# FastAPI / Starlette mount — full StaticFiles semantics
+app.mount('/static', StaticFiles(directory='public'), name='static')
+
+# NiceGUI helper — adds cache-control headers automatically
+app.add_static_files('/assets', 'assets')
+```
+
+---
+
+## Lifecycle Hooks
+
+`app.on_startup()` and `app.on_shutdown()` let you run code when the server starts or stops:
+
+```python
+from nicegui import app, ui
+import asyncio
+
+@app.on_startup
+async def startup():
+    print('Server started — connecting to database...')
+
+@app.on_shutdown
+async def shutdown():
+    print('Server stopping — closing connections...')
+
+ui.run()
+```
+
+---
+
+## Summary
+
+<CardGroup cols={2}>
+  <Card title="REST endpoints" icon="plug">
+    `@app.get()`, `@app.post()`, etc. work directly on `nicegui.app` — it is a FastAPI instance.
+  </Card>
+  <Card title="Route groups" icon="folder-tree">
+    Use `nicegui.APIRouter` to organise pages and endpoints; it adds a `.page()` method alongside the standard FastAPI router.
+  </Card>
+  <Card title="Middleware" icon="shield-check">
+    Apply `app.add_middleware()` for authentication, logging, CORS, and more. Always exempt `/_nicegui/*` paths.
+  </Card>
+  <Card title="Existing FastAPI app" icon="merge">
+    Call `ui.run_with(your_fastapi_app, mount_path='/ui')` to embed NiceGUI as a sub-application.
+  </Card>
+  <Card title="Static files" icon="folder-open">
+    Use `app.add_static_files()` for local directories or `app.mount()` for full Starlette `StaticFiles` control.
+  </Card>
+  <Card title="Lifecycle" icon="play">
+    `app.on_startup()` and `app.on_shutdown()` let you hook database connections and background services.
+  </Card>
+</CardGroup>

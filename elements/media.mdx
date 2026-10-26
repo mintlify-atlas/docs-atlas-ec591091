@@ -1,0 +1,378 @@
+---
+title: "Media Elements in NiceGUI"
+sidebarTitle: "Media"
+description: "Add images, video, audio, interactive images, 3D scenes, Leaflet maps, and joysticks to your NiceGUI app with practical code examples."
+---
+
+NiceGUI makes it straightforward to embed rich media in your Python web application. Whether you need a static image, a streaming webcam feed, a 3D Three.js scene, or an interactive geographic map, the elements on this page give you a concise Python API over the underlying browser capabilities.
+
+## `ui.image`
+
+Displays an image using Quasar's `QImg` component. Accepts URLs, local file paths, base64 data URIs, and PIL `Image` objects.
+
+**Constructor**
+
+```python
+ui.image(source: str | Path | PIL_Image = '')
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `str \| Path \| PIL_Image` | URL, file path, base64 string, or PIL image |
+
+**Example**
+
+```python
+from nicegui import ui
+
+# Remote URL
+ui.image('https://picsum.photos/400/300').classes('w-64 rounded')
+
+# Local file
+ui.image('assets/logo.png').classes('w-32')
+
+# Force reload (useful for webcam snapshots)
+img = ui.image('https://example.com/snapshot.jpg')
+ui.button('Refresh', on_click=img.force_reload)
+
+ui.run()
+```
+
+<Tip>
+Call `img.force_reload()` to bust the browser cache when your image URL serves dynamic content.
+</Tip>
+
+---
+
+## `ui.video`
+
+Embeds an HTML5 `<video>` player.
+
+**Constructor**
+
+```python
+ui.video(
+    src: str | Path,
+    *,
+    controls: bool = True,
+    autoplay: bool = False,
+    muted: bool = False,
+    loop: bool = False,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `src` | `str \| Path` | — | URL or local file path |
+| `controls` | `bool` | `True` | Show player controls |
+| `autoplay` | `bool` | `False` | Auto-play on load |
+| `muted` | `bool` | `False` | Start muted |
+| `loop` | `bool` | `False` | Loop playback |
+
+**Example**
+
+```python
+from nicegui import ui
+
+player = ui.video(
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+    controls=True,
+    loop=False,
+).classes('w-full max-w-2xl')
+
+with ui.row():
+    ui.button('Play',  on_click=player.play)
+    ui.button('Pause', on_click=player.pause)
+    ui.button('Seek 30s', on_click=lambda: player.seek(30))
+
+ui.run()
+```
+
+---
+
+## `ui.audio`
+
+Embeds an HTML5 `<audio>` player with the same parameter set as `ui.video`.
+
+**Constructor**
+
+```python
+ui.audio(
+    src: str | Path,
+    *,
+    controls: bool = True,
+    autoplay: bool = False,
+    muted: bool = False,
+    loop: bool = False,
+)
+```
+
+**Example**
+
+```python
+from nicegui import ui
+
+player = ui.audio(
+    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    controls=True,
+)
+
+with ui.row():
+    ui.button('Play',  on_click=player.play)
+    ui.button('Pause', on_click=player.pause)
+    ui.button('Seek 60s', on_click=lambda: player.seek(60))
+
+ui.run()
+```
+
+---
+
+## `ui.interactive_image`
+
+An image with an SVG overlay that fires mouse events with **image-space coordinates**. Ideal for clickable diagrams, annotation tools, and non-flickering live camera feeds.
+
+**Constructor**
+
+```python
+ui.interactive_image(
+    source: str | Path | PIL_Image = '',
+    *,
+    content: str = '',
+    size: tuple[float, float] | None = None,
+    on_mouse: Handler[MouseEventArguments] | None = None,
+    events: list[str] = ['click'],
+    cross: bool | str = False,
+    sanitize: bool | Callable = True,
+)
+```
+
+The `on_mouse` callback receives a `MouseEventArguments` with:
+- `type` — the JavaScript event name
+- `image_x`, `image_y` — pixel coordinates relative to the image
+- `button`, `buttons` — mouse button info
+- `alt`, `ctrl`, `meta`, `shift` — modifier keys
+
+**Example**
+
+```python
+from nicegui import ui
+
+def handle_click(e):
+    svg = f'<circle cx="{e.image_x}" cy="{e.image_y}" r="8" fill="red" opacity="0.7"/>'
+    image.set_content(image.content + svg)
+
+image = ui.interactive_image(
+    'https://picsum.photos/640/480',
+    on_mouse=handle_click,
+    events=['click', 'mousemove'],
+    cross='blue',
+)
+
+ui.button('Clear markers', on_click=lambda: image.set_content(''))
+
+ui.run()
+```
+
+---
+
+## `ui.scene`
+
+A WebGL 3D canvas powered by [Three.js](https://threejs.org/). Nest 3D objects as class attributes on the `scene` context.
+
+**Constructor**
+
+```python
+ui.scene(
+    width: int = 400,
+    height: int = 300,
+    grid: bool | tuple[int, int] = True,
+    camera: SceneCamera | None = None,
+    on_click: Handler[SceneClickEventArguments] | None = None,
+    background_color: str = '#eee',
+    control_type: Literal['orbit', 'trackball', 'map'] = 'orbit',
+    fps: int = 20,
+)
+```
+
+### Available 3D objects
+
+| Object | Method | Description |
+|--------|--------|-------------|
+| Box | `scene.box()` | Rectangular cuboid |
+| Sphere | `scene.sphere()` | UV sphere |
+| Cylinder | `scene.cylinder()` | Cylinder / cone |
+| Ring | `scene.ring()` | Flat ring / torus |
+| Extrusion | `scene.extrusion()` | Extruded polygon |
+| Curve | `scene.curve()` | Smooth 3D curve |
+| Line | `scene.line()` | Polyline |
+| Point cloud | `scene.point_cloud()` | Particle system |
+| GLTF | `scene.gltf()` | Load a `.gltf`/`.glb` model |
+| STL | `scene.stl()` | Load a `.stl` mesh |
+| Text | `scene.text()` | Flat HTML label |
+| Text3D | `scene.text3d()` | 3D extruded text |
+| Spot light | `scene.spot_light()` | Directional light source |
+| Axes helper | `scene.axes_helper()` | XYZ axis gizmo |
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.scene(width=600, height=400, background_color='#1a1a2e') as scene:
+    # A red box
+    scene.box(width=1, height=1, depth=1).material('#e63946').move(x=-2)
+
+    # A blue sphere
+    scene.sphere(radius=0.8).material('#457b9d').move(x=0, y=0, z=1)
+
+    # A green cylinder
+    scene.cylinder(top_radius=0.5, bottom_radius=0.5, height=1.5).material('#2a9d8f').move(x=2)
+
+    # Floor grid is shown by default (grid=True)
+    scene.axes_helper(size=2)
+
+ui.run()
+```
+
+### Programmatic camera control
+
+```python
+from nicegui import ui
+
+with ui.scene() as scene:
+    scene.sphere(radius=1).material('orange')
+
+ui.button(
+    'Top view',
+    on_click=lambda: scene.move_camera(x=0, y=0, z=8, look_at_x=0, look_at_y=0, look_at_z=0),
+)
+
+ui.run()
+```
+
+---
+
+## `ui.leaflet`
+
+An interactive geographic map backed by [Leaflet.js](https://leafletjs.com/).
+
+**Constructor**
+
+```python
+ui.leaflet(
+    center: tuple[float, float] = (0.0, 0.0),
+    zoom: int = 13,
+    *,
+    options: dict = {},
+    draw_control: bool | dict = False,
+    hide_drawn_items: bool = False,
+    additional_resources: list[str] | None = None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `center` | `tuple[float, float]` | `(0.0, 0.0)` | Initial latitude/longitude |
+| `zoom` | `int` | `13` | Initial zoom level (1–18) |
+| `draw_control` | `bool \| dict` | `False` | Show drawing toolbar |
+
+**Example**
+
+```python
+from nicegui import ui
+
+m = ui.leaflet(center=(51.505, -0.09), zoom=13).classes('w-full h-64')
+
+# Add a tile layer (OpenStreetMap)
+m.tile_layer(
+    url_template='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options={'attribution': '© OpenStreetMap contributors'},
+)
+
+# Add a marker
+m.marker(latlng=(51.505, -0.09))
+
+# Pan to a new location
+ui.button(
+    'Go to Paris',
+    on_click=lambda: m.set_center((48.8566, 2.3522)),
+)
+
+ui.run()
+```
+
+---
+
+## `ui.joystick`
+
+A virtual joystick for touch and mouse control, based on [nipple.js](https://yoannmoi.net/nipplejs/).
+
+**Example**
+
+```python
+from nicegui import ui
+
+ui.joystick(
+    color='blue',
+    size=50,
+    on_move=lambda e: coordinates.set_text(f'x={e.x:.2f}, y={e.y:.2f}'),
+    on_end=lambda _: coordinates.set_text('Released'),
+)
+coordinates = ui.label('Move the joystick')
+
+ui.run()
+```
+
+---
+
+## `ui.parallax`
+
+A parallax scrolling effect element that moves a background image at a different speed than the page content.
+
+**Example**
+
+```python
+from nicegui import ui
+
+with ui.parallax('https://picsum.photos/1600/900').classes('h-64'):
+    ui.label('Parallax Section').classes('text-white text-h4 absolute-center')
+
+ui.run()
+```
+
+---
+
+## Complete Media Page Example
+
+```python
+from nicegui import ui
+
+ui.label('Media Showcase').classes('text-h4 mb-4')
+
+with ui.grid(columns=2).classes('w-full gap-6'):
+    # Image card
+    with ui.card():
+        ui.label('Static Image').classes('text-subtitle1')
+        ui.image('https://picsum.photos/320/200').classes('w-full rounded')
+
+    # Interactive image card
+    with ui.card():
+        ui.label('Click to annotate').classes('text-subtitle1')
+        img = ui.interactive_image(
+            'https://picsum.photos/seed/nice/320/200',
+            on_mouse=lambda e: img.set_content(
+                img.content + f'<circle cx="{e.image_x}" cy="{e.image_y}" r="6" fill="red"/>',
+            ),
+            cross=True,
+        )
+        ui.button('Clear', on_click=lambda: img.set_content('')).props('flat size=sm')
+
+# 3D Scene
+ui.label('3D Scene').classes('text-subtitle1 mt-4')
+with ui.scene(width=600, height=300, background_color='#111') as scene:
+    scene.box(0.8, 0.8, 0.8).material('#e63946').move(x=-2, z=0.4)
+    scene.sphere(0.7).material('#457b9d').move(x=0, z=0.7)
+    scene.cylinder(0.4, 0.4, 1.4).material('#2a9d8f').move(x=2, z=0.7)
+
+ui.run()
+```

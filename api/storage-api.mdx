@@ -1,0 +1,317 @@
+---
+title: "NiceGUI Storage API — Per-User and Shared State"
+sidebarTitle: "Storage API"
+description: "Complete reference for app.storage scopes in NiceGUI: client, tab, user, browser, and general — including ObservableDict, PersistentDict, and Redis backend."
+---
+
+NiceGUI's storage system gives you several pre-built places to keep state, each with a different lifetime and scope. All storage scopes expose a dict-like interface backed by `ObservableDict`, so changes can be watched and bound to UI elements just like any other Python dict.
+
+<Note>
+`app.storage.user` and `app.storage.browser` require a `storage_secret` to be passed to `ui.run()`. This secret is used to sign the session cookie. Without it, accessing these scopes raises a `RuntimeError`.
+
+```python
+ui.run(storage_secret='my-very-secret-key')
+```
+</Note>
+
+---
+
+## Storage scope comparison
+
+| Scope | Per | Persistence | Notes |
+|---|---|---|---|
+| `app.storage.client` | Browser connection | Lost on page reload | Most volatile; discarded when WebSocket closes |
+| `app.storage.tab` | Browser tab | Survives reload; lost when tab closes | Requires an active client connection |
+| `app.storage.user` | User (session cookie) | Until cookie expires | Requires `storage_secret`; shared across all tabs of the same user |
+| `app.storage.browser` | Browser (signed cookie) | Until cookie expires | Requires `storage_secret`; read-only after the initial request |
+| `app.storage.general` | All users (server-wide) | Persistent on disk (or Redis) | Shared across every connected user |
+
+---
+
+## `app.storage.client`
+
+A volatile `ObservableDict` tied to the current browser **connection**. Data is discarded the moment the WebSocket connection closes — including on page reload or navigation.
+
+Use it for truly ephemeral per-tab data that doesn't need to outlive a single page view.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    app.storage.client['step'] = 1
+    ui.label(f"Step: {app.storage.client['step']}")
+
+ui.run()
+```
+
+<ParamField path="app.storage.client" type="ObservableDict">
+  Per-connection in-memory store. No `storage_secret` required. Automatically cleared when the client disconnects.
+</ParamField>
+
+---
+
+## `app.storage.tab`
+
+An `ObservableDict` scoped to the current browser **tab**. Unlike `app.storage.client`, this data survives page reloads within the same tab session. Data is pruned after `max_tab_storage_age` (default: 30 days) of inactivity.
+
+<Note>
+`app.storage.tab` requires an active WebSocket connection. Accessing it before the client has connected (e.g. in a `@ui.page` function body before `await client.connected()`) raises a `RuntimeError`. Use `await client.connected()` if you need tab storage during page initialization.
+</Note>
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+async def index():
+    await ui.context.client.connected()
+    app.storage.tab['visits'] = app.storage.tab.get('visits', 0) + 1
+    ui.label(f"Tab visits: {app.storage.tab['visits']}")
+
+ui.run(storage_secret='secret')
+```
+
+<ParamField path="app.storage.tab" type="ObservableDict">
+  Per-tab in-memory store. Survives page reloads. Requires `storage_secret`. Automatically pruned after `max_tab_storage_age` seconds of inactivity (default 30 days).
+</ParamField>
+
+---
+
+## `app.storage.user`
+
+A `PersistentDict` scoped to the current **user**, identified by a session cookie. Data is shared across all browser tabs opened by the same user and persists across server restarts (stored in `.nicegui/storage-user-<id>.json` by default, or in Redis).
+
+This is the most commonly useful storage scope for per-user preferences, authentication state, and application data.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    app.storage.user['username'] = 'Alice'
+    name = app.storage.user.get('username', 'Guest')
+    ui.label(f'Hello, {name}!')
+
+ui.run(storage_secret='my-secret')
+```
+
+<ParamField path="app.storage.user" type="PersistentDict">
+  Per-user persistent store. Requires `storage_secret`. Data survives page reloads and server restarts. Shared across all tabs for the same user. Raises `RuntimeError` if accessed outside a UI context or without `storage_secret`.
+</ParamField>
+
+---
+
+## `app.storage.browser`
+
+A dict-like object backed by the browser's **signed session cookie**. Data is visible to and writable from any page the same browser visits, but is read-only once the HTTP response has been sent. For most use cases, prefer `app.storage.user`.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    # Readable anywhere; only writable before the response is sent.
+    session_id = app.storage.browser.get('id')
+    ui.label(f'Session: {session_id}')
+
+ui.run(storage_secret='my-secret')
+```
+
+<ParamField path="app.storage.browser" type="ReadOnlyDict | dict">
+  Per-browser cookie-backed store. Requires `storage_secret`. Writable only during the initial request; becomes a `ReadOnlyDict` after the response is built. Raises `RuntimeError` if accessed outside a request context or without `storage_secret`.
+</ParamField>
+
+<Warning>
+Cookie storage has a small size limit (typically ~4 KB after encoding and signing). Do not store large payloads here. Use `app.storage.user` for server-side persistence without size constraints.
+</Warning>
+
+---
+
+## `app.storage.general`
+
+A `PersistentDict` shared across **all users and all connections**. Useful for application-wide counters, configuration, or any data that every user should see. Persisted on disk as `.nicegui/storage-general.json` (or in Redis).
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    app.storage.general['visits'] = app.storage.general.get('visits', 0) + 1
+    ui.label(f"Total visits: {app.storage.general['visits']}")
+
+ui.run()
+```
+
+<ParamField path="app.storage.general" type="PersistentDict">
+  Server-wide persistent store. No `storage_secret` required. Shared across all users. Changes are written to disk automatically. Thread-safe via the asyncio event loop.
+</ParamField>
+
+---
+
+## Dict-like interface
+
+All storage scopes implement the standard Python `dict` interface since they are subclasses of `dict` (via `ObservableDict` or `PersistentDict`):
+
+```python
+# Reading
+value = app.storage.user.get('key', default)
+value = app.storage.user['key']
+'key' in app.storage.user
+
+# Writing
+app.storage.user['key'] = 'value'
+app.storage.user.update({'a': 1, 'b': 2})
+app.storage.user.setdefault('visits', 0)
+
+# Deleting
+del app.storage.user['key']
+app.storage.user.pop('key', None)
+```
+
+---
+
+## Binding storage to UI elements
+
+Because all scopes return an `ObservableDict` or `PersistentDict`, you can bind UI elements directly to storage keys:
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    ui.input('Name').bind_value(app.storage.user, 'username')
+    ui.switch('Dark mode').bind_value(app.storage.user, 'dark_mode')
+
+ui.run(storage_secret='my-secret')
+```
+
+Changes to the input or switch are automatically persisted. On the next page load, the stored values are restored.
+
+---
+
+## `ObservableDict`
+
+`ObservableDict` is a `dict` subclass that fires change notifications whenever its contents are modified. All storage scopes return instances of `ObservableDict` or a subclass of it.
+
+It supports the full `dict` API and additionally:
+
+```python
+# Register a change handler
+storage.on_change(lambda: print('storage changed'))
+```
+
+<ParamField path="on_change" type="Callable">
+  A callable registered with `.on_change(handler)`. Called without arguments (or with an `ObservableChangeEventArguments` object if the handler declares a parameter) whenever any key in the dict (or a nested `ObservableDict`) is modified.
+</ParamField>
+
+Nested dicts, lists, and sets assigned into an `ObservableDict` are automatically wrapped in their observable equivalents (`ObservableDict`, `ObservableList`, `ObservableSet`), so change notifications propagate up through the whole tree.
+
+---
+
+## `PersistentDict`
+
+`PersistentDict` extends `ObservableDict` with a persistence layer. NiceGUI provides two implementations:
+
+- **`FilePersistentDict`** — stores data as a JSON file under `Storage.path` (default: `.nicegui/`).
+- **`RedisPersistentDict`** — stores data in Redis when `storage_backend='redis'` is configured.
+
+<Accordion title="Configuring the storage path">
+
+The default storage path is `.nicegui/` relative to the working directory. Override it via the environment variable or directly:
+
+```python
+import os
+os.environ['NICEGUI_STORAGE_PATH'] = '/var/myapp/storage'
+
+# Or set it directly after importing:
+from nicegui.storage import Storage
+Storage.path = '/var/myapp/storage'
+```
+
+</Accordion>
+
+---
+
+## Redis backend
+
+For multi-instance deployments, NiceGUI supports a Redis-backed storage backend that is shared across all running processes.
+
+**Installation:**
+
+```bash
+pip install nicegui[redis]
+```
+
+**Configuration:**
+
+```python
+ui.run(
+    storage_secret='my-secret',
+    storage_backend='redis',
+    redis_url='redis://localhost:6379',
+)
+```
+
+You can also use the environment variable:
+
+```bash
+NICEGUI_REDIS_URL=redis://localhost:6379 python main.py
+```
+
+<ParamField path="storage_backend" type="str" default="'file'">
+  Storage backend to use. Set to `'redis'` to enable Redis persistence for `app.storage.user` and `app.storage.general`.
+</ParamField>
+<ParamField path="redis_url" type="str | None" default="None">
+  Redis connection URL (e.g. `'redis://localhost:6379'`). Required when `storage_backend='redis'`. Also reads from the `NICEGUI_REDIS_URL` environment variable.
+</ParamField>
+
+<Note>
+Tab storage automatically gets a TTL set to `max_tab_storage_age + 20` seconds when using the Redis backend, so Redis handles expiry natively.
+</Note>
+
+---
+
+## Tab storage pruning
+
+`app.storage.tab` data is pruned automatically. The `max_tab_storage_age` setting controls how long inactive tab data is kept:
+
+```python
+from nicegui.storage import Storage
+
+Storage.max_tab_storage_age = 60 * 60 * 24 * 30  # 30 days (default)
+```
+
+<ParamField path="Storage.max_tab_storage_age" type="float" default="2592000.0">
+  Maximum age in seconds for tab storage entries before they are automatically purged. Defaults to 30 days (`timedelta(days=30).total_seconds()`).
+</ParamField>
+
+---
+
+## Accessing storage outside a page context
+
+`app.storage.user` and `app.storage.browser` require an active HTTP request context (a `@ui.page` handler or a component rendered within one). Accessing them outside this context raises a `RuntimeError`.
+
+`app.storage.general` and `app.storage.client` can be accessed from startup handlers and background tasks:
+
+```python
+from nicegui import app
+
+@app.on_startup
+async def startup():
+    app.storage.general.setdefault('start_count', 0)
+    app.storage.general['start_count'] += 1
+```
+
+<Warning>
+Never access `app.storage.user` from `app.on_startup` or other non-request contexts. It will raise a `RuntimeError` because there is no session cookie to identify the user.
+</Warning>
+
+---
+
+## Clearing all storage
+
+```python
+app.storage.clear()
+```
+
+Clears all in-memory storage scopes and removes all `storage-*.json` files from the storage path. Intended for testing and development use.

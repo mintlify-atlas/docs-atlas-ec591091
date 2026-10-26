@@ -1,0 +1,405 @@
+---
+title: "NiceGUI Timers & Background Tasks: Async Concurrency"
+sidebarTitle: "Timers & Tasks"
+description: "Run periodic callbacks with ui.timer, fire-and-forget coroutines with background_tasks.create, and offload blocking work with run.io_bound and run.cpu_bound."
+---
+
+NiceGUI runs on a single asyncio event loop shared by every page, every user, and every timer. Understanding this architecture is the key to writing applications that stay responsive — and avoiding the most common pitfall: blocking the loop with synchronous code.
+
+## The Single Event Loop Model
+
+Every NiceGUI server is a single Python process with one asyncio event loop. All WebSocket messages, HTTP requests, timer callbacks, and background tasks are multiplexed through this loop. If anything **blocks** the loop — even for a second — every user experiences a freeze.
+
+```python
+# ❌ BAD: blocks the entire app for every user
+import time
+
+def slow_update():
+    time.sleep(2)           # the loop is frozen for 2 seconds
+    label.set_text('Done')
+
+ui.button('Update', on_click=slow_update)
+```
+
+```python
+# ✅ GOOD: yields control back to the loop while waiting
+import asyncio
+
+async def slow_update():
+    await asyncio.sleep(2)  # other callbacks run during this wait
+    label.set_text('Done')
+
+ui.button('Update', on_click=slow_update)
+```
+
+---
+
+## `ui.timer` — Periodic Callbacks
+
+`ui.timer` is the recommended way to run code on a schedule. It creates a task in the asyncio event loop that calls your callback at the given interval.
+
+### Signature
+
+```python
+ui.timer(
+    interval: float,       # seconds between invocations
+    callback: Callable,    # sync or async function to call
+    *,
+    active: bool = True,   # whether to start immediately
+    once: bool = False,    # run only once (like setTimeout)
+    immediate: bool = True,# call on first tick without waiting (ignored if once=True)
+)
+```
+
+### Basic Usage
+
+```python
+from nicegui import ui
+from datetime import datetime
+
+@ui.page('/')
+def page():
+    clock = ui.label()
+
+    # Update the label every second
+    ui.timer(1.0, lambda: clock.set_text(datetime.now().strftime('%H:%M:%S')))
+```
+
+### Run Once After a Delay
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def page():
+    banner = ui.label('Loading…')
+    ui.timer(2.0, lambda: banner.set_text('Ready!'), once=True)
+```
+
+### Activating and Deactivating
+
+`Timer.active` is a `BindableProperty`, so you can toggle it programmatically or bind it to UI controls:
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def page():
+    count = 0
+    label = ui.label('0')
+
+    def tick():
+        nonlocal count
+        count += 1
+        label.set_text(str(count))
+
+    t = ui.timer(0.5, tick, active=False)
+
+    with ui.row():
+        ui.button('Start',  on_click=t.activate)
+        ui.button('Pause',  on_click=t.deactivate)
+        ui.button('Cancel', on_click=t.cancel)
+
+    # Bind a switch directly to the timer's active property
+    ui.switch('Auto-update').bind_value(t, 'active')
+```
+
+### Changing the Interval at Runtime
+
+`Timer.interval` is also a `BindableProperty`:
+
+```python
+from nicegui import ui
+
+@ui.page('/')
+def page():
+    count = 0
+    label = ui.label('0')
+    t = ui.timer(1.0, lambda: label.set_text(str(count)))
+
+    ui.label('Interval (seconds)')
+    ui.slider(min=0.1, max=5.0, step=0.1, value=1.0).bind_value(t, 'interval')
+```
+
+### Async Timer Callbacks
+
+```python
+from nicegui import ui
+import httpx
+
+@ui.page('/')
+def page():
+    status_label = ui.label('Checking…')
+
+    async def check_status():
+        async with httpx.AsyncClient() as client:
+            resp = await client.get('https://httpbin.org/status/200')
+        status_label.set_text(f'Status: {resp.status_code}')
+
+    ui.timer(10.0, check_status)
+```
+
+### Cancelling with the Current Invocation
+
+```python
+t = ui.timer(5.0, long_running_callback)
+
+# Cancel the timer and also abort any currently running invocation
+t.cancel(with_current_invocation=True)
+```
+
+---
+
+## `background_tasks.create()` — Fire-and-Forget Coroutines
+
+For one-off async work that shouldn't block the page builder, use `background_tasks.create()`. It wraps `loop.create_task()` but:
+
+- Keeps a strong reference so the garbage collector can't cancel the task mid-run
+- Routes exceptions through NiceGUI's `app.on_exception` handler automatically
+
+```python
+from nicegui import background_tasks, ui
+
+async def long_task(label):
+    import asyncio
+    await asyncio.sleep(3)
+    label.set_text('Finished!')
+
+@ui.page('/')
+def page():
+    result = ui.label('Working…')
+    background_tasks.create(long_task(result), name='long-task')
+```
+
+<Warning>
+**Never use `asyncio.create_task()` directly** for fire-and-forget work. Without a strong reference, Python's garbage collector may cancel the task before it finishes. Exceptions are also silently swallowed unless you explicitly `await` the task.
+
+```python
+# ❌ BAD: task may be GC-cancelled; exceptions are swallowed
+asyncio.create_task(my_coro())
+
+# ✅ GOOD: reference is kept; exceptions reach app.on_exception
+background_tasks.create(my_coro(), name='descriptive-name')
+```
+</Warning>
+
+### Running in a Page Context
+
+Pass `context=` to ensure elements created inside the task land in the right container and exceptions reach the page's `ui.on_exception` handler:
+
+```python
+from nicegui import background_tasks, ui
+
+@ui.page('/')
+def page():
+    container = ui.column()
+
+    async def populate():
+        import asyncio
+        await asyncio.sleep(1)
+        with container:
+            ui.label('Loaded asynchronously')
+
+    background_tasks.create(populate(), name='populate', context=container)
+```
+
+---
+
+## `run.io_bound()` — Blocking I/O in a Thread
+
+When you must call a blocking library (legacy database drivers, `requests`, file I/O, `subprocess`), wrap it with `run.io_bound`. The call runs in a managed thread pool and the event loop continues serving other users while it runs.
+
+```python
+from nicegui import run, ui
+import requests
+
+@ui.page('/')
+def page():
+    result_label = ui.label()
+
+    async def fetch():
+        result_label.set_text('Fetching…')
+        # Blocking HTTP call runs in a thread — event loop stays free
+        response = await run.io_bound(requests.get, 'https://httpbin.org/uuid')
+        result_label.set_text(response.json()['uuid'])
+
+    ui.button('Fetch UUID', on_click=fetch)
+```
+
+### Passing Arguments and Keyword Arguments
+
+```python
+# Positional args
+data = await run.io_bound(requests.get, url, timeout=5)
+
+# Keyword args are supported too
+result = await run.io_bound(my_blocking_function, arg1, arg2, keyword=value)
+```
+
+---
+
+## `run.cpu_bound()` — CPU-Heavy Work in a Process
+
+For computation-intensive tasks (image processing, data analysis, ML inference), `run.cpu_bound` runs the function in a separate **process**, completely outside the event loop.
+
+```python
+from nicegui import run, ui
+
+def compute_fibonacci(n: int) -> int:
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+@ui.page('/')
+def page():
+    result_label = ui.label()
+
+    async def calculate():
+        result_label.set_text('Computing…')
+        result = await run.cpu_bound(compute_fibonacci, 100_000)
+        result_label.set_text(f'F(100000) ends in …{str(result)[-6:]}')
+
+    ui.button('Calculate', on_click=calculate)
+```
+
+<Warning>
+Arguments and return values for `run.cpu_bound` must be **picklable**. This means:
+- Use module-level functions, not lambdas or closures
+- Pass plain data (numbers, strings, lists, dicts), not UI elements or client objects
+- The function cannot reference NiceGUI globals (they exist only in the main process)
+</Warning>
+
+### Configure the Process Pool Start Method
+
+```python
+from nicegui import run, ui
+
+# Set before ui.run() — 'spawn' is recommended for safety
+run.process_pool_start_method = 'spawn'
+
+ui.run()
+```
+
+---
+
+## `asyncio.sleep()` vs `ui.timer()`
+
+Both can delay execution, but they serve different roles:
+
+| | `asyncio.sleep()` | `ui.timer()` |
+|---|---|---|
+| **Where** | Inside `async def` functions | Anywhere in page scope |
+| **Pattern** | One-shot delay in a flow | Repeating (or one-shot) background tick |
+| **Cancellable** | Via task cancellation | Via `.cancel()` |
+| **Best for** | Sequential async workflows | Polling, clock updates, auto-save |
+
+```python
+# asyncio.sleep: sequential async flow
+async def guided_tour():
+    ui.notify('Step 1')
+    await asyncio.sleep(2)
+    ui.notify('Step 2')
+    await asyncio.sleep(2)
+    ui.notify('Done!')
+
+# ui.timer: recurring background work
+ui.timer(5.0, lambda: app.storage.general.update({'heartbeat': time.time()}))
+```
+
+---
+
+## BAD vs. GOOD Patterns Summary
+
+<Steps>
+  <Step title="Never block the event loop">
+    ```python
+    # ❌ BAD: freezes all users
+    async def on_click():
+        import time
+        time.sleep(5)           # blocks everything
+
+    # ✅ GOOD
+    async def on_click():
+        await asyncio.sleep(5)  # only this coroutine waits
+    ```
+  </Step>
+  <Step title="Wrap blocking I/O">
+    ```python
+    # ❌ BAD: blocking HTTP in async handler
+    async def on_click():
+        data = requests.get(api_url).json()  # blocks the loop!
+
+    # ✅ GOOD: thread pool wrapper
+    async def on_click():
+        data = (await run.io_bound(requests.get, api_url)).json()
+
+    # ✅ ALSO GOOD: async HTTP client
+    async def on_click():
+        async with httpx.AsyncClient() as client:
+            data = (await client.get(api_url)).json()
+    ```
+  </Step>
+  <Step title="Use run.cpu_bound for heavy computation">
+    ```python
+    # ❌ BAD: runs in the event loop, blocks everyone
+    async def on_click():
+        result = heavy_number_crunching(data)  # CPU-bound
+
+    # ✅ GOOD: separate process
+    async def on_click():
+        result = await run.cpu_bound(heavy_number_crunching, data)
+    ```
+  </Step>
+  <Step title="Use background_tasks.create for fire-and-forget">
+    ```python
+    # ❌ BAD: GC may cancel; exceptions are silent
+    asyncio.create_task(send_email(user))
+
+    # ✅ GOOD: reference is kept; exceptions are routed
+    background_tasks.create(send_email(user), name='send-email')
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Complete Real-World Example
+
+A live dashboard that polls an external API, shows a spinner during fetch, and updates a table periodically:
+
+```python
+from nicegui import app, background_tasks, run, ui
+import httpx
+
+@ui.page('/dashboard')
+def dashboard():
+    with ui.row().classes('items-center gap-2'):
+        ui.label('Live Prices').classes('text-xl font-bold')
+        spinner = ui.spinner(size='sm')
+        spinner.visible = False
+
+    columns = [
+        {'name': 'symbol', 'label': 'Symbol', 'field': 'symbol'},
+        {'name': 'price',  'label': 'Price',  'field': 'price'},
+    ]
+    table = ui.table(columns=columns, rows=[])
+
+    async def refresh():
+        spinner.visible = True
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get('https://api.example.com/prices')
+            table.rows = resp.json()
+            table.update()
+        finally:
+            spinner.visible = False
+
+    # Initial load as a background task (don't block the page builder)
+    background_tasks.create(refresh(), name='initial-load')
+
+    # Auto-refresh every 30 seconds
+    ui.timer(30.0, refresh)
+
+ui.run(title='Dashboard')
+```

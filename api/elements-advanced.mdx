@@ -1,0 +1,865 @@
+---
+title: "NiceGUI Advanced Elements API Reference"
+sidebarTitle: "Advanced Elements"
+description: "API reference for NiceGUI advanced elements: table, aggrid, echart, scene, leaflet, joystick, log, json editor, interactive image, codemirror, keyboard, timer, refreshable, and menus."
+---
+
+NiceGUI's advanced elements cover data grids, charts, 3D scenes, maps, code editors, and reactive programming patterns. These elements often wrap complex JavaScript libraries (AG Grid, Apache ECharts, Three.js, Leaflet, CodeMirror) and expose a Python-first API that keeps the rich interactivity of those libraries while hiding their configuration complexity.
+
+---
+
+## `ui.table`
+
+```python
+ui.table(
+    *,
+    rows: list[dict],
+    columns: list[dict] | None = None,
+    column_defaults: dict | None = None,
+    row_key: str = 'id',
+    title: str | None = None,
+    selection: Literal[None, 'single', 'multiple'] = None,
+    pagination: int | dict | None = None,
+    on_select: Handler[TableSelectionEventArguments] | None = None,
+    on_pagination_change: Handler[ValueChangeEventArguments[dict]] | None = None,
+)
+```
+
+A data table based on Quasar's `QTable`. Rows and columns are plain Python dicts.
+
+<ParamField path="rows" type="list[dict]" required>
+  List of row objects. Each key corresponds to a column `field`.
+</ParamField>
+
+<ParamField path="columns" type="list[dict] | None" default="None">
+  Column definitions. Defaults to auto-generating columns from the first row's keys.
+</ParamField>
+
+<ParamField path="row_key" type="str" default="'id'">
+  Name of the field that uniquely identifies each row (used by selection).
+</ParamField>
+
+<ParamField path="title" type="str | None" default="None">
+  Optional table header title.
+</ParamField>
+
+<ParamField path="selection" type="str | None" default="None">
+  Enable row selection: `'single'` or `'multiple'`. Access `.selected` for the list of selected rows.
+</ParamField>
+
+<ParamField path="pagination" type="int | dict | None" default="None">
+  `None` hides pagination. An integer sets rows-per-page. `0` means infinite. A dict maps to a Quasar pagination object.
+</ParamField>
+
+**Column definition format:**
+
+```python
+columns = [
+    {
+        'name': 'id',          # unique column identifier
+        'label': 'ID',         # header text
+        'field': 'id',         # row dict key to read
+        'required': True,      # always shown
+        'align': 'left',       # 'left' | 'right' | 'center'
+        'sortable': True,
+        'sort': lambda a, b, row_a, row_b: a - b,  # custom sort
+        'format': lambda val, row: f'{val:.2f}',   # display formatter
+    },
+    # ...
+]
+```
+
+```python
+from nicegui import ui
+
+columns = [
+    {'name': 'name',   'label': 'Name',  'field': 'name',  'align': 'left', 'sortable': True},
+    {'name': 'age',    'label': 'Age',   'field': 'age',   'sortable': True},
+    {'name': 'active', 'label': 'Active','field': 'active'},
+]
+rows = [
+    {'id': 1, 'name': 'Alice', 'age': 30, 'active': True},
+    {'id': 2, 'name': 'Bob',   'age': 25, 'active': False},
+]
+
+table = ui.table(columns=columns, rows=rows, row_key='id', selection='multiple')
+ui.button('Selected', on_click=lambda: ui.notify(str(table.selected)))
+```
+
+**Key methods and properties:**
+
+| Member | Description |
+|--------|-------------|
+| `.rows` | Mutable list of row dicts. Modify and call `.update()`. |
+| `.columns` | Mutable list of column dicts. |
+| `.selected` | List of currently selected row dicts. |
+| `.add_rows(rows)` | Append multiple rows. |
+| `.add_row(row)` | Append a single row. |
+| `.remove_rows(rows)` | Remove rows by identity. |
+| `.update_rows(rows)` | Replace all rows. |
+| `Table.from_pandas(df)` | Class method to construct from a Pandas DataFrame. |
+| `Table.from_polars(df)` | Class method to construct from a Polars DataFrame. |
+| `.toggle_fullscreen()` | Toggle fullscreen mode. |
+
+**Custom cell rendering** — use named slots inside the table:
+
+```python
+with table.add_slot('body-cell-active'):
+    ui.checkbox().bind_value_from(table, 'props', lambda p: p['row']['active'])
+```
+
+---
+
+## `ui.aggrid`
+
+```python
+ui.aggrid(
+    options: dict,
+    *,
+    html_columns: list[int] = [],
+    theme: Literal['quartz', 'balham', 'material', 'alpine'] | None = None,
+    auto_size_columns: bool | None = None,
+    modules: Literal['community', 'enterprise'] | list[str] = 'community',
+)
+```
+
+A full-featured data grid using [AG Grid](https://www.ag-grid.com/) (version 34). Updates are pushed by modifying `options` and calling `.update()`.
+
+<ParamField path="options" type="dict" required>
+  AG Grid options dict. Must include `columnDefs` and `rowData` at minimum.
+</ParamField>
+
+<ParamField path="html_columns" type="list[int]" default="[]">
+  List of column indices (0-based) whose cell content should be rendered as HTML.
+</ParamField>
+
+<ParamField path="theme" type="str | None" default="None">
+  AG Grid visual theme: `'quartz'` (default), `'balham'`, `'material'`, or `'alpine'`.
+</ParamField>
+
+<ParamField path="auto_size_columns" type="bool | None" default="None">
+  Auto-fit column widths to the grid. Disabled automatically when `flex` columns are used.
+</ParamField>
+
+<ParamField path="modules" type="str | list[str]" default="'community'">
+  `'community'`, `'enterprise'`, or a list of specific AG Grid module names.
+</ParamField>
+
+**Column definition keys:**
+
+```python
+column_defs = [
+    {
+        'field': 'name',          # maps to rowData key
+        'headerName': 'Name',     # column header
+        'sortable': True,
+        'filter': True,
+        'editable': True,
+        'width': 150,
+        'flex': 1,                # flex column — disables auto_size_columns
+        'cellDataType': 'boolean',# native checkbox renderer
+    },
+]
+```
+
+```python
+from nicegui import ui
+
+grid = ui.aggrid({
+    'columnDefs': [
+        {'field': 'make',  'headerName': 'Make',  'sortable': True, 'filter': True},
+        {'field': 'model', 'headerName': 'Model', 'sortable': True},
+        {'field': 'price', 'headerName': 'Price', 'valueFormatter': "value + ' USD'"},
+    ],
+    'rowData': [
+        {'make': 'Toyota', 'model': 'Corolla', 'price': 22000},
+        {'make': 'Ford',   'model': 'Focus',   'price': 18000},
+    ],
+    'rowSelection': 'multiple',
+})
+
+async def get_selected():
+    rows = await grid.get_selected_rows()
+    ui.notify(f'{len(rows)} row(s) selected')
+
+ui.button('Selected rows', on_click=get_selected)
+```
+
+**Key methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.run_grid_method(name, *args)` | Call an [AG Grid API method](https://www.ag-grid.com/javascript-data-grid/grid-api/). |
+| `.run_row_method(row_id, name, *args)` | Call a method on a specific row node. |
+| `await .get_selected_rows()` | Returns list of selected row dicts. |
+| `await .get_selected_row()` | Returns first selected row dict or `None`. |
+| `await .get_client_data(method=...)` | Returns current client-side data (includes edits). |
+| `.from_pandas(df)` | Class method to build from a Pandas DataFrame. |
+| `.from_polars(df)` | Class method to build from a Polars DataFrame. |
+
+---
+
+## `ui.echart`
+
+```python
+ui.echart(
+    options: dict,
+    on_point_click: Handler[EChartPointClickEventArguments] | None = None,
+    *,
+    on_click: Handler[EChartComponentClickEventArguments] | None = None,
+    enable_3d: bool = False,
+    renderer: Literal['canvas', 'svg'] = 'canvas',
+    theme: str | dict | None = None,
+)
+```
+
+An interactive chart element powered by [Apache ECharts](https://echarts.apache.org/). Update the chart by modifying `.options` and calling `.update()`.
+
+<ParamField path="options" type="dict" required>
+  ECharts options object. See the [ECharts option reference](https://echarts.apache.org/en/option.html).
+</ParamField>
+
+<ParamField path="on_point_click" type="Handler | None" default="None">
+  Callback for series data point clicks. Receives `EChartPointClickEventArguments` with `.series_name`, `.name`, `.data`, `.value`, etc.
+</ParamField>
+
+<ParamField path="on_click" type="Handler | None" default="None">
+  Callback for any component click (axis labels, legend items, etc.). Receives `EChartComponentClickEventArguments`.
+</ParamField>
+
+<ParamField path="enable_3d" type="bool" default="False">
+  Force-import the `echarts-gl` library for 3D chart types.
+</ParamField>
+
+<ParamField path="renderer" type="str" default="'canvas'">
+  Rendering backend: `'canvas'` (default, better performance) or `'svg'` (better for print/export).
+</ParamField>
+
+```python
+from nicegui import ui
+
+chart = ui.echart({
+    'xAxis': {'type': 'category', 'data': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']},
+    'yAxis': {'type': 'value'},
+    'series': [{'type': 'line', 'data': [150, 230, 224, 218, 135]}],
+    'tooltip': {'trigger': 'axis'},
+})
+
+# Live update
+import random
+ui.timer(1.0, lambda: chart.options['series'][0]['data'].__setitem__(
+    random.randint(0, 4), random.randint(50, 300)
+) or chart.update())
+```
+
+**Key methods:**
+
+| Method | Description |
+|--------|-------------|
+| `.run_chart_method(name, *args)` | Call an [ECharts instance method](https://echarts.apache.org/en/api.html#echartsInstance). |
+| `EChart.from_pyecharts(chart)` | Class method to build from a `pyecharts` chart object. |
+
+---
+
+## `ui.scene`
+
+```python
+ui.scene(
+    width: int = 400,
+    height: int = 300,
+    grid: bool | tuple[int, int] = True,
+    camera: SceneCamera | None = None,
+    on_click: Handler[SceneClickEventArguments] | None = None,
+    click_events: list[str] = ['click', 'dblclick'],
+    on_drag_start: Handler[SceneDragEventArguments] | None = None,
+    on_drag_end: Handler[SceneDragEventArguments] | None = None,
+    drag_constraints: str = '',
+    background_color: str = '#eee',
+    control_type: Literal['orbit', 'trackball', 'map'] = 'orbit',
+    fps: int = 20,
+    show_stats: bool = False,
+)
+```
+
+An interactive 3D scene powered by [Three.js](https://threejs.org/).
+
+<ParamField path="width" type="int" default="400">
+  Canvas width in pixels.
+</ParamField>
+
+<ParamField path="height" type="int" default="300">
+  Canvas height in pixels.
+</ParamField>
+
+<ParamField path="grid" type="bool | tuple[int, int]" default="True">
+  Show a ground grid. Pass a `(size, divisions)` tuple to configure the `GridHelper`.
+</ParamField>
+
+<ParamField path="camera" type="SceneCamera | None" default="None">
+  Camera instance. Use `ui.scene.perspective_camera()` (default) or `ui.scene.orthographic_camera()`.
+</ParamField>
+
+<ParamField path="on_click" type="Handler | None" default="None">
+  Callback for 3D object click events. Receives `SceneClickEventArguments` with `.hits` list of `SceneClickHit(object_id, object_name, x, y, z)`.
+</ParamField>
+
+<ParamField path="control_type" type="str" default="'orbit'">
+  Navigation mode: `'orbit'`, `'trackball'`, or `'map'`.
+</ParamField>
+
+<ParamField path="drag_constraints" type="str" default="''">
+  Comma-separated JavaScript expressions constraining dragged positions (e.g. `'x = 0, z = y / 2'`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+with ui.scene(width=600, height=400) as scene:
+    scene.box().move(x=1).material('#4CAF50')
+    scene.sphere().move(x=-1).material('#F44336')
+    scene.cylinder(1, 0.5, 2, 20).move(z=1).material('#2196F3')
+    scene.text('Hello 3D!', 'bold 20px Arial').move(z=3)
+```
+
+**Built-in 3D object types:**
+
+`box`, `sphere`, `cylinder`, `ring`, `extrusion`, `line`, `curve`, `quadratic_bezier_tube`, `point_cloud`, `stl`, `gltf`, `texture`, `text`, `text3d`, `axes_helper`, `group`, `spot_light`
+
+**Camera factory methods:**
+
+```python
+# Perspective (default)
+cam = ui.scene.perspective_camera(fov=75, near=0.1, far=1000)
+
+# Orthographic
+cam = ui.scene.orthographic_camera(size=10, near=0.1, far=1000)
+```
+
+**Methods:** `.move_camera(x, y, z, look_at_x, look_at_y, look_at_z, duration)`, `await .initialized()`, `.delete_objects(predicate)`
+
+---
+
+## `ui.leaflet`
+
+```python
+ui.leaflet(
+    center: tuple[float, float] = (0.0, 0.0),
+    zoom: int = 13,
+    *,
+    options: dict = {},
+    draw_control: bool | dict = False,
+    hide_drawn_items: bool = False,
+    additional_resources: list[str] | None = None,
+)
+```
+
+An interactive map powered by [Leaflet.js](https://leafletjs.com/), defaulting to OpenStreetMap tiles.
+
+<ParamField path="center" type="tuple[float, float]" default="(0.0, 0.0)">
+  Initial map center as `(latitude, longitude)`.
+</ParamField>
+
+<ParamField path="zoom" type="int" default="13">
+  Initial zoom level (1–19 typical).
+</ParamField>
+
+<ParamField path="draw_control" type="bool | dict" default="False">
+  Show a drawing toolbar. Pass a dict to configure Leaflet.draw options.
+</ParamField>
+
+<ParamField path="options" type="dict" default="{}">
+  Additional Leaflet map options passed directly to `L.map()`.
+</ParamField>
+
+```python
+from nicegui import ui
+
+m = ui.leaflet(center=(51.505, -0.09), zoom=13)
+
+# Add a marker
+m.marker(latlng=(51.505, -0.09))
+
+# Change view
+m.set_center((48.8566, 2.3522))
+m.set_zoom(12)
+```
+
+**Built-in layer types:** `.tile_layer()`, `.marker()`, `.image_overlay()`, `.video_overlay()`, `.wms_layer()`, `.generic_layer()`
+
+**Methods:** `.run_map_method(name, *args)`, `.run_layer_method(layer_id, name, *args)`, `.remove_layer(layer)`, `.clear_layers()`, `await .initialized()`
+
+---
+
+## `ui.joystick`
+
+```python
+ui.joystick(
+    *,
+    on_start: Handler[JoystickEventArguments] | None = None,
+    on_move: Handler[JoystickEventArguments] | None = None,
+    on_end: Handler[JoystickEventArguments] | None = None,
+    throttle: float = 0.05,
+    **options,
+)
+```
+
+A virtual joystick powered by [nipple.js](https://yoannmoi.net/nipplejs/).
+
+<ParamField path="on_start" type="Handler | None" default="None">
+  Called when the user touches the joystick.
+</ParamField>
+
+<ParamField path="on_move" type="Handler | None" default="None">
+  Called while the joystick is being moved. `JoystickEventArguments` contains `.x` and `.y` (−1.0 to 1.0 vector).
+</ParamField>
+
+<ParamField path="on_end" type="Handler | None" default="None">
+  Called when the user releases the joystick.
+</ParamField>
+
+<ParamField path="throttle" type="float" default="0.05">
+  Minimum interval in seconds between `on_move` events.
+</ParamField>
+
+<ParamField path="**options" type="Any">
+  Additional [nipple.js options](https://github.com/yoannmoinet/nipplejs#options) (e.g. `color='blue'`, `size=100`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+def on_move(e):
+    ui.notify(f'x={e.x:.2f}, y={e.y:.2f}', timeout=0.5)
+
+ui.joystick(on_move=on_move, color='teal', size=80)
+```
+
+---
+
+## `ui.log`
+
+```python
+ui.log(max_lines: int | None = None)
+```
+
+A streaming log viewer. New lines are appended incrementally without re-transmitting history.
+
+<ParamField path="max_lines" type="int | None" default="None">
+  Maximum lines to keep. Oldest lines are discarded when exceeded. `None` keeps all lines.
+</ParamField>
+
+```python
+from nicegui import ui
+import logging
+
+log = ui.log(max_lines=100).classes('w-full h-40')
+
+# Redirect Python logging
+class LogHandler(logging.Handler):
+    def emit(self, record):
+        log.push(self.format(record))
+
+logging.getLogger().addHandler(LogHandler())
+logging.info('Application started')
+```
+
+**`.push(line, classes=None, style=None, props=None)`** — append a line of text. Line breaks within `line` create multiple entries. Per-line CSS classes, styles, and props are supported.
+
+---
+
+## `ui.json_editor`
+
+```python
+ui.json_editor(
+    properties: dict,
+    *,
+    on_select: Handler[JsonEditorSelectEventArguments] | None = None,
+    on_change: Handler[JsonEditorChangeEventArguments] | None = None,
+    schema: dict | None = None,
+)
+```
+
+A full-featured JSON editor based on [svelte-jsoneditor](https://github.com/josdejong/svelte-jsoneditor).
+
+<ParamField path="properties" type="dict" required>
+  JSONEditor properties. Must include `'content'` with either `{'json': ...}` or `{'text': '...'}`.
+</ParamField>
+
+<ParamField path="on_change" type="Handler | None" default="None">
+  Callback with `JsonEditorChangeEventArguments.content` (new content) and `.errors`.
+</ParamField>
+
+<ParamField path="on_select" type="Handler | None" default="None">
+  Callback with `JsonEditorSelectEventArguments.selection`.
+</ParamField>
+
+<ParamField path="schema" type="dict | None" default="None">
+  [JSON Schema](https://json-schema.org/) for in-editor validation.
+</ParamField>
+
+```python
+from nicegui import ui
+
+editor = ui.json_editor({
+    'content': {'json': {'name': 'Alice', 'age': 30}},
+    'mode': 'tree',
+})
+
+async def read_content():
+    result = await editor.run_editor_method('get')
+    ui.notify(str(result))
+
+ui.button('Read', on_click=read_content)
+```
+
+**`.run_editor_method(name, *args)`** — call any [JSONEditor API method](https://github.com/josdejong/svelte-jsoneditor).
+
+---
+
+## `ui.interactive_image`
+
+```python
+ui.interactive_image(
+    source: str | Path | PIL_Image = '',
+    *,
+    content: str = '',
+    size: tuple[float, float] | None = None,
+    on_mouse: Handler[MouseEventArguments] | None = None,
+    events: list[str] = ['click'],
+    cross: bool | str = False,
+    sanitize: Callable | bool = True,
+)
+```
+
+An image with an SVG overlay that captures mouse coordinates. Ideal for annotation tools and live webcam feeds.
+
+<ParamField path="source" type="str | Path | PIL_Image" default="">
+  Image source — URL, file path, base64 string, or PIL Image.
+</ParamField>
+
+<ParamField path="content" type="str" default="">
+  SVG markup overlaid on the image. The SVG viewport matches the image dimensions.
+</ParamField>
+
+<ParamField path="on_mouse" type="Handler | None" default="None">
+  Callback receiving `MouseEventArguments` with `.image_x`, `.image_y` (pixel coordinates), `.type`, `.button`, and modifier keys.
+</ParamField>
+
+<ParamField path="events" type="list[str]" default="['click']">
+  JavaScript events to capture (e.g. `['click', 'mousemove', 'mousedown']`).
+</ParamField>
+
+<ParamField path="cross" type="bool | str" default="False">
+  Show crosshairs at the cursor position. Pass a CSS color string for a colored crosshair.
+</ParamField>
+
+```python
+from nicegui import ui
+
+def on_mouse(e):
+    with img:
+        ui.run_javascript(f'''
+            document.querySelector('circle').setAttribute('cx', {e.image_x});
+            document.querySelector('circle').setAttribute('cy', {e.image_y});
+        ''')
+
+img = ui.interactive_image(
+    'https://picsum.photos/640/360',
+    content='<circle cx="0" cy="0" r="10" fill="red" />',
+    on_mouse=on_mouse,
+    events=['mousemove'],
+    cross=True,
+)
+```
+
+**`.force_reload()`** — force re-fetch for network sources. **`.add_layer(content='')`** — add an additional SVG overlay layer.
+
+---
+
+## `ui.codemirror`
+
+```python
+ui.codemirror(
+    value: str = '',
+    *,
+    on_change: Handler[ValueChangeEventArguments[str]] | None = None,
+    language: str | None = None,
+    theme: str = 'basicLight',
+    indent: str = '    ',
+    line_wrapping: bool = False,
+    highlight_whitespace: bool = False,
+    ...
+)
+```
+
+A full-featured code editor powered by [CodeMirror 6](https://codemirror.net/).
+
+<ParamField path="value" type="str" default="">
+  Initial editor content.
+</ParamField>
+
+<ParamField path="on_change" type="Handler | None" default="None">
+  Callback invoked when the content changes.
+</ParamField>
+
+<ParamField path="language" type="str | None" default="None">
+  Syntax highlighting language (case-insensitive). Over 140 languages supported. Browse via `.supported_languages`.
+</ParamField>
+
+<ParamField path="theme" type="str" default="'basicLight'">
+  Editor color theme. Over 30 themes supported. Browse via `.supported_themes`.
+</ParamField>
+
+<ParamField path="indent" type="str" default="'    '">
+  Indentation string (must be all-whitespace, e.g. `'  '` for 2 spaces or `'\t'` for tabs).
+</ParamField>
+
+<ParamField path="line_wrapping" type="bool" default="False">
+  Wrap long lines instead of showing a horizontal scrollbar.
+</ParamField>
+
+<ParamField path="highlight_whitespace" type="bool" default="False">
+  Show dots for spaces and arrows for tabs.
+</ParamField>
+
+```python
+from nicegui import ui
+
+editor = ui.codemirror(
+    value='def hello():\n    print("Hello, World!")',
+    language='Python',
+    theme='dracula',
+    on_change=lambda e: print(f'Changed: {len(e.value)} chars'),
+)
+
+# Read supported options
+print(editor.supported_languages[:5])
+print(editor.supported_themes[:5])
+```
+
+**Properties:** `.value`, `.language`, `.theme`, `.line_wrapping`
+
+**Methods:** `.set_language(lang)`, `.set_theme(theme)`, `.set_line_wrapping(bool)`, `.reveal_line(line_number)`
+
+---
+
+## `ui.keyboard`
+
+```python
+ui.keyboard(
+    on_key: Handler[KeyEventArguments] | None = None,
+    *,
+    active: bool = True,
+    repeating: bool = True,
+    ignore: list[str] = ['input', 'select', 'button', 'textarea'],
+)
+```
+
+Global keyboard event listener.
+
+<ParamField path="on_key" type="Handler | None" default="None">
+  Callback receiving `KeyEventArguments` with `.key` (name, code, location), `.modifiers` (alt, ctrl, meta, shift), and `.action` (keydown, keyup, repeat).
+</ParamField>
+
+<ParamField path="active" type="bool" default="True">
+  Toggle event delivery without removing the element.
+</ParamField>
+
+<ParamField path="repeating" type="bool" default="True">
+  Deliver events for held keys (auto-repeat).
+</ParamField>
+
+<ParamField path="ignore" type="list[str]" default="['input', 'select', 'button', 'textarea']">
+  Element types that suppress keyboard events when focused.
+</ParamField>
+
+```python
+from nicegui import ui
+
+def handle_key(e):
+    if e.action.keydown and e.key.enter:
+        ui.notify('Enter pressed!')
+    if e.action.keydown and e.modifiers.ctrl and e.key.name == 's':
+        ui.notify('Ctrl+S: Save!')
+
+kb = ui.keyboard(on_key=handle_key)
+ui.switch('Keyboard active').bind_value(kb, 'active')
+```
+
+**`KeyboardKey` convenience properties:** `.is_cursorkey`, `.enter`, `.escape`, `.backspace`, `.space`, `.arrow_left`, `.arrow_right`, `.arrow_up`, `.arrow_down`, `.f1`–`.f12`, `.number` (0–9 or `None`).
+
+---
+
+## `ui.timer`
+
+```python
+ui.timer(
+    interval: float,
+    callback: Callable,
+    *,
+    active: bool = True,
+    once: bool = False,
+    immediate: bool = True,
+)
+```
+
+Executes a callback at a regular interval. Both sync and `async` callbacks are supported. The timer is tied to the current page client.
+
+<ParamField path="interval" type="float" required>
+  Interval in seconds between callback invocations (can be changed at runtime via `.interval`).
+</ParamField>
+
+<ParamField path="callback" type="Callable" required>
+  Synchronous or async function to call.
+</ParamField>
+
+<ParamField path="active" type="bool" default="True">
+  Whether the timer runs. Can be toggled via `.active` at runtime.
+</ParamField>
+
+<ParamField path="once" type="bool" default="False">
+  Execute the callback only once after the first interval delay.
+</ParamField>
+
+<ParamField path="immediate" type="bool" default="True">
+  Call the callback immediately on the first tick before the first sleep (ignored when `once=True`).
+</ParamField>
+
+```python
+from nicegui import ui
+
+counter = {'n': 0}
+label = ui.label('0')
+
+def tick():
+    counter['n'] += 1
+    label.set_text(str(counter['n']))
+
+timer = ui.timer(0.5, tick)
+
+with ui.row():
+    ui.switch('Active').bind_value(timer, 'active')
+    ui.button('Reset', on_click=lambda: counter.update(n=0))
+```
+
+**Methods:** `.activate()`, `.deactivate()`, `.cancel(with_current_invocation=False)`
+
+<Warning>
+`ui.timer` inside a `@ui.page` function is per-client. `app.on_startup` or `ui.timer` at module level runs once globally. Cancel timers or they continue running after the client disconnects.
+</Warning>
+
+---
+
+## `ui.refreshable`
+
+```python
+@ui.refreshable
+def my_view():
+    # build UI here
+    ...
+
+# Trigger a full re-render
+my_view.refresh()
+```
+
+The `@ui.refreshable` decorator marks a function that builds a portion of the UI. Calling `.refresh()` clears all elements created by that function and rebuilds them. Useful for data-driven views that need to respond to model changes.
+
+```python
+from nicegui import ui
+import random
+
+data = {'values': [1, 2, 3]}
+
+@ui.refreshable
+def chart_view():
+    ui.echart({
+        'xAxis': {'type': 'category', 'data': ['a', 'b', 'c']},
+        'yAxis': {'type': 'value'},
+        'series': [{'type': 'bar', 'data': data['values']}],
+    })
+
+chart_view()  # initial render
+
+def randomize():
+    data['values'] = [random.randint(1, 10) for _ in range(3)]
+    chart_view.refresh()
+
+ui.button('Randomize', on_click=randomize)
+```
+
+**`ui.state(initial_value)`** — create a local state variable inside a refreshable function that auto-triggers `refresh()` when updated:
+
+```python
+@ui.refreshable
+def counter_view():
+    count, set_count = ui.state(0)
+    ui.label(f'Count: {count}')
+    ui.button('Increment', on_click=lambda: set_count(count + 1))
+```
+
+<Note>
+For refreshable class methods, use `@ui.refreshable_method` instead of `@ui.refreshable` to avoid static type-checking errors.
+</Note>
+
+---
+
+## `ui.menu` / `ui.menu_item` / `ui.context_menu`
+
+### `ui.menu`
+
+```python
+ui.menu(*, value: bool = False)
+```
+
+A dropdown menu based on Quasar's `QMenu`. Place it **inside** the trigger element (e.g., a button).
+
+<ParamField path="value" type="bool" default="False">
+  Whether the menu is initially open.
+</ParamField>
+
+### `ui.menu_item`
+
+```python
+ui.menu_item(
+    text: str = '',
+    on_click: Handler[ClickEventArguments] | None = None,
+    *,
+    auto_close: bool = True,
+)
+```
+
+<ParamField path="text" type="str" default="">
+  Menu item label.
+</ParamField>
+
+<ParamField path="auto_close" type="bool" default="True">
+  Automatically close the parent menu when clicked.
+</ParamField>
+
+### `ui.context_menu`
+
+```python
+ui.context_menu()
+```
+
+A right-click context menu. Place it inside the element that should respond to right-click. Opens automatically at the cursor position.
+
+```python
+from nicegui import ui
+
+# Dropdown menu
+with ui.button('Actions'):
+    with ui.menu():
+        ui.menu_item('Edit', on_click=lambda: ui.notify('Edit'))
+        ui.menu_item('Delete', on_click=lambda: ui.notify('Delete'))
+        ui.separator()
+        ui.menu_item('Cancel', auto_close=True)
+
+# Context menu
+with ui.label('Right-click me').classes('p-4 border'):
+    with ui.context_menu():
+        ui.menu_item('Copy')
+        ui.menu_item('Paste')
+```
+
+**Menu methods:** `.open()`, `.close()`, `.toggle()`

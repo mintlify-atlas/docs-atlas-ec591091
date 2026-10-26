@@ -1,0 +1,293 @@
+---
+title: "ui.run() — Start the NiceGUI Server"
+sidebarTitle: "ui.run()"
+description: "Complete API reference for ui.run() and ui.run_with(). Configure host, port, dark mode, native windows, auto-reload, storage, and more."
+---
+
+`ui.run()` is the entry point that starts the NiceGUI web server. It spins up a uvicorn ASGI server, registers your pages, and opens a browser tab by default. You call it once at the bottom of your application script, after all `@ui.page` decorators and global UI definitions are in place.
+
+Most parameters only take effect on a full server restart. When `reload=True` (the default in development), changing these values requires stopping and restarting the process — they are **not** hot-reloaded.
+
+```python
+import nicegui.ui as ui
+
+ui.label('Hello, world!')
+ui.run(port=8080, title='My App', dark=True)
+```
+
+## `ui.run()`
+
+```python
+def run(
+    root: Callable | None = None,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+    title: str = 'NiceGUI',
+    viewport: str = 'width=device-width, initial-scale=1',
+    favicon: str | Path | None = None,
+    dark: bool | None = False,
+    language: Language | None = None,
+    binding_refresh_interval: float | None = 0.1,
+    reconnect_timeout: float = 3.0,
+    message_history_length: int = 1000,
+    cache_control_directives: str = 'public, max-age=31536000, immutable, stale-while-revalidate=31536000',
+    gzip_middleware_factory: Callable[[ASGIApp], GZipMiddleware] | None = GZipMiddleware,
+    fastapi_docs: bool | DocsConfig = False,
+    show: bool | str = True,
+    on_air: str | Literal[True] | None = None,
+    native: bool = False,
+    window_size: tuple[int, int] | None = None,
+    fullscreen: bool = False,
+    frameless: bool = False,
+    reload: bool = True,
+    uvicorn_logging_level: str = 'warning',
+    uvicorn_reload_dirs: str = '.',
+    uvicorn_reload_includes: str = '*.py',
+    uvicorn_reload_excludes: str = '.*, .py[cod], .sw.*, ~*',
+    tailwind: bool = True,
+    unocss: Literal['mini', 'wind3', 'wind4'] | None = None,
+    prod_js: bool = True,
+    endpoint_documentation: Literal['none', 'internal', 'page', 'all'] = 'none',
+    storage_secret: str | None = None,
+    session_middleware_kwargs: dict[str, Any] | None = None,
+    show_welcome_message: bool = True,
+    markdown: bool = False,
+    **kwargs: Any,
+) -> None
+```
+
+### Parameters
+
+<ParamField path="root" type="Callable | None" default="None">
+  Optional root page function. When provided, NiceGUI calls this function to build the root (`/`) page for every new visitor. Useful when you prefer a function-based entry point over the global-scope script style.
+</ParamField>
+
+<ParamField path="host" type="str | None" default="None">
+  Host address the server binds to. Defaults to `'127.0.0.1'` in native mode, `'0.0.0.0'` otherwise (all interfaces).
+</ParamField>
+
+<ParamField path="port" type="int | None" default="None">
+  TCP port to listen on. Defaults to `8080` in normal mode. In native mode an open port is found automatically.
+</ParamField>
+
+<ParamField path="title" type="str" default="'NiceGUI'">
+  Browser tab title used as the default for every page. Individual pages can override this with the `title` parameter of `@ui.page`.
+</ParamField>
+
+<ParamField path="viewport" type="str" default="'width=device-width, initial-scale=1'">
+  Content of the HTML `<meta name="viewport">` tag. Controls how the page scales on mobile devices. Can be overridden per page.
+</ParamField>
+
+<ParamField path="favicon" type="str | Path | None" default="None">
+  Favicon for the browser tab. Accepts a local file path, an absolute `http(s)://` URL, a data URL, an inline SVG string, or an emoji such as `'🚀'`. Defaults to the NiceGUI icon. On Windows in native mode, a local `.ico` file is also applied as the native window icon.
+</ParamField>
+
+<ParamField path="dark" type="bool | None" default="False">
+  Quasar dark-mode setting applied globally. `False` = light mode, `True` = dark mode, `None` = auto (follows the OS preference).
+</ParamField>
+
+<ParamField path="language" type="Language | None" default="None">
+  Language code for Quasar component labels and the `lang` attribute of the `<html>` tag (e.g. `'de'`, `'fr'`). When `None`, Quasar defaults to `'en-US'` and the `lang` attribute is omitted.
+</ParamField>
+
+<ParamField path="binding_refresh_interval" type="float | None" default="0.1">
+  Seconds between binding refresh cycles. Larger values reduce CPU usage. Pass `None` to disable the refresh loop entirely (bindings will only update on explicit triggers).
+</ParamField>
+
+<ParamField path="reconnect_timeout" type="float" default="3.0">
+  Maximum seconds the server waits for a browser to reconnect after a connection drop before deleting the client and its state.
+</ParamField>
+
+<ParamField path="message_history_length" type="int" default="1000">
+  Number of WebSocket messages kept in memory so they can be replayed after a brief disconnection. Set to `0` to disable the history buffer.
+</ParamField>
+
+<ParamField path="cache_control_directives" type="str" default="'public, max-age=31536000, immutable, stale-while-revalidate=31536000'">
+  Value of the `Cache-Control` header sent with NiceGUI's internal static assets (JavaScript, CSS). The default enables aggressive long-term caching.
+</ParamField>
+
+<ParamField path="gzip_middleware_factory" type="Callable[[ASGIApp], GZipMiddleware] | None" default="GZipMiddleware">
+  Factory that produces the GZip middleware instance. Customize compression settings with a lambda, for example `lambda app: GZipMiddleware(app, minimum_size=500, compresslevel=9)`. Pass `None` to disable GZip compression entirely.
+</ParamField>
+
+<ParamField path="fastapi_docs" type="bool | DocsConfig" default="False">
+  Enable FastAPI's automatic OpenAPI documentation (Swagger UI at `/docs`, ReDoc at `/redoc`). Pass a `DocsConfig` dict to set `title`, `summary`, `description`, `version`, `terms_of_service`, `contact`, and `license_info`.
+</ParamField>
+
+<ParamField path="show" type="bool | str" default="True">
+  Automatically open the browser when the server starts. Pass `False` to suppress, or a path string like `'/dashboard'` to open a specific page instead of `/`.
+</ParamField>
+
+<ParamField path="on_air" type="str | Literal[True] | None" default="None">
+  Enable NiceGUI On Air for temporary remote access. Set to `True` to use an anonymous token, or supply your personal token string. Disabled by default.
+</ParamField>
+
+<ParamField path="native" type="bool" default="False">
+  Open the application in a native desktop window via pywebview (800×600 by default) instead of the browser. Automatically disables `show` and selects an open port.
+</ParamField>
+
+<ParamField path="window_size" type="tuple[int, int] | None" default="None">
+  Size of the native window as `(width, height)` pixels, e.g. `(1024, 768)`. Setting this implicitly enables `native=True`.
+</ParamField>
+
+<ParamField path="fullscreen" type="bool" default="False">
+  Open the native window in fullscreen mode. Implicitly enables `native=True`.
+</ParamField>
+
+<ParamField path="frameless" type="bool" default="False">
+  Open the native window without a title bar or OS frame. Implicitly enables `native=True`.
+</ParamField>
+
+<ParamField path="reload" type="bool" default="True">
+  Automatically restart the server when Python source files change. Disable in production (`reload=False`) for lower overhead. Has no effect when running interactively in a REPL.
+</ParamField>
+
+<ParamField path="uvicorn_logging_level" type="str" default="'warning'">
+  Logging verbosity of the underlying uvicorn server. Common values: `'critical'`, `'error'`, `'warning'`, `'info'`, `'debug'`, `'trace'`.
+</ParamField>
+
+<ParamField path="uvicorn_reload_dirs" type="str" default="'.'">
+  Comma-separated list of directories watched for file changes in reload mode. Defaults to the current working directory.
+</ParamField>
+
+<ParamField path="uvicorn_reload_includes" type="str" default="'*.py'">
+  Comma-separated glob patterns that trigger a reload when matched files change.
+</ParamField>
+
+<ParamField path="uvicorn_reload_excludes" type="str" default="'.*, .py[cod], .sw.*, ~*'">
+  Comma-separated glob patterns excluded from reload watching.
+</ParamField>
+
+<ParamField path="tailwind" type="bool" default="True">
+  Include Tailwind CSS utility classes. Experimental; set to `False` if you do not use Tailwind classes to reduce page weight slightly.
+</ParamField>
+
+<ParamField path="unocss" type="Literal['mini', 'wind3', 'wind4'] | None" default="None">
+  Use [UnoCSS](https://unocss.dev/) instead of Tailwind CSS. Choose a preset: `'mini'`, `'wind3'`, or `'wind4'`. When set, `tailwind` is automatically disabled.
+</ParamField>
+
+<ParamField path="prod_js" type="bool" default="True">
+  Use minified production builds of Vue and Quasar. Set to `False` during development to get more readable JavaScript error messages.
+</ParamField>
+
+<ParamField path="endpoint_documentation" type="Literal['none', 'internal', 'page', 'all']" default="'none'">
+  Controls which NiceGUI routes appear in the OpenAPI schema when `fastapi_docs` is enabled. `'none'` hides all NiceGUI routes; `'page'` exposes only `@ui.page` routes; `'internal'` exposes internal `/_nicegui` endpoints; `'all'` exposes everything.
+</ParamField>
+
+<ParamField path="storage_secret" type="str | None" default="None">
+  Secret key used to sign browser session cookies for `ui.storage.user` and `ui.storage.browser`. **Required** to use those storage scopes. Choose a long random string and keep it secret.
+</ParamField>
+
+<ParamField path="session_middleware_kwargs" type="dict[str, Any] | None" default="None">
+  Extra keyword arguments forwarded to Starlette's `SessionMiddleware` that manages the session cookies backing browser storage.
+</ParamField>
+
+<ParamField path="show_welcome_message" type="bool" default="True">
+  Print the NiceGUI startup banner (URLs, version) to the console. Disable for cleaner CI/CD logs.
+</ParamField>
+
+<ParamField path="markdown" type="bool" default="False">
+  When a client sends `Accept: text/markdown`, serve a Markdown representation of the page instead of HTML. Experimental. Can be overridden per page.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Additional keyword arguments passed directly to `uvicorn.run()`, e.g. `ssl_certfile`, `ssl_keyfile`, `log_config`.
+</ParamField>
+
+---
+
+## `ui.run_with()` — FastAPI integration
+
+When you already have a FastAPI application and want to add NiceGUI pages to it, use `ui.run_with()` instead of `ui.run()`. NiceGUI is mounted as a sub-application on your existing FastAPI instance.
+
+```python
+from fastapi import FastAPI
+from nicegui import ui
+
+my_app = FastAPI()
+
+@my_app.get('/api/hello')
+def hello():
+    return {'message': 'Hello from FastAPI'}
+
+@ui.page('/')
+def index():
+    ui.label('NiceGUI running inside FastAPI')
+
+ui.run_with(my_app, title='My Hybrid App', storage_secret='change-me')
+# Then serve with: uvicorn main:my_app
+```
+
+```python
+def run_with(
+    app: FastAPI,
+    *,
+    root: Callable | None = None,
+    title: str = 'NiceGUI',
+    viewport: str = 'width=device-width, initial-scale=1',
+    favicon: str | Path | None = None,
+    dark: bool | None = False,
+    language: Language | None = None,
+    binding_refresh_interval: float | None = 0.1,
+    reconnect_timeout: float = 3.0,
+    message_history_length: int = 1000,
+    cache_control_directives: str = 'public, max-age=31536000, immutable, stale-while-revalidate=31536000',
+    gzip_middleware_factory: Callable[[ASGIApp], GZipMiddleware] | None = GZipMiddleware,
+    mount_path: str = '/',
+    on_air: str | Literal[True] | None = None,
+    tailwind: bool = True,
+    unocss: Literal['mini', 'wind3', 'wind4'] | None = None,
+    prod_js: bool = True,
+    storage_secret: str | None = None,
+    session_middleware_kwargs: dict[str, Any] | None = None,
+    show_welcome_message: bool = True,
+    markdown: bool = False,
+) -> None
+```
+
+<ParamField path="app" type="FastAPI">
+  Your own `FastAPI` application instance. Must **not** be `nicegui.app` — passing the NiceGUI app to itself causes infinite recursion.
+</ParamField>
+
+<ParamField path="mount_path" type="str" default="'/'">
+  The URL prefix at which NiceGUI is mounted inside your FastAPI app. For example, `'/ui'` would serve NiceGUI pages under `/ui/...`.
+</ParamField>
+
+All other parameters are identical to their counterparts in `ui.run()`. `reload` is not available in `run_with()` — handle reloads through your own server process.
+
+<Note>
+When using `ui.run_with()`, start your server with an ASGI runner such as uvicorn pointed at **your** app, not `nicegui:app`. Example: `uvicorn main:my_app --reload`.
+</Note>
+
+---
+
+## Development vs. production
+
+<CodeGroup>
+```python Development
+ui.run(
+    reload=True,        # auto-reload on file changes
+    prod_js=False,      # readable Vue/Quasar errors
+    show=True,          # open browser automatically
+    uvicorn_logging_level='info',
+)
+```
+
+```python Production
+ui.run(
+    host='0.0.0.0',
+    port=443,
+    reload=False,
+    storage_secret='a-long-random-secret',
+    show=False,
+    show_welcome_message=False,
+    ssl_certfile='/etc/ssl/cert.pem',
+    ssl_keyfile='/etc/ssl/key.pem',
+)
+```
+</CodeGroup>
+
+<Warning>
+`ui.run()` does not support `workers > 1`. NiceGUI maintains in-process state (element trees, WebSocket connections) that cannot be shared across worker processes.
+</Warning>

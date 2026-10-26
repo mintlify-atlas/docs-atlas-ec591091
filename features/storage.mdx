@@ -1,0 +1,274 @@
+---
+title: "NiceGUI Storage: Per-User, Session, and Global State"
+sidebarTitle: "Storage"
+description: "Choose between NiceGUI's five storage scopes—client, tab, user, browser, and general—for the right persistence lifetime and visibility per use case."
+---
+
+NiceGUI runs as a single Python process. Module-level variables are shared between every connected tab and every user — mutating them is almost always a bug in multi-user applications. The `app.storage` API provides clearly scoped buckets that map directly to how long you need data to live.
+
+## Storage Scopes at a Glance
+
+| Scope | Visible to | Persistence | Requires `storage_secret` |
+|-------|-----------|-------------|--------------------------|
+| `app.storage.client` | One browser connection | Lost on page reload | No |
+| `app.storage.tab` | One browser tab | Survives reload, lost when tab closes | No |
+| `app.storage.user` | One user (session cookie) | Until cookie expires | **Yes** |
+| `app.storage.browser` | One browser install | Until cookie expires (read-only after response) | **Yes** |
+| `app.storage.general` | All users (whole server) | Persistent on disk (or Redis) | No |
+
+<Note>
+`storage_secret` is required for `user` and `browser` storage because they rely on a signed session cookie. Pass it in `ui.run()`:
+
+```python
+ui.run(storage_secret='a-long-random-string')
+```
+
+Without it, accessing `app.storage.user` or `app.storage.browser` raises a `RuntimeError`.
+</Note>
+
+---
+
+## `app.storage.client` — Connection-Scoped
+
+Volatile, in-memory dictionary tied to a single WebSocket connection. Data is gone the moment the user navigates away or refreshes.
+
+**Use for:** Wizard step state, transient UI flags, anything that should reset on reload.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+async def index():
+    await ui.context.client.connected()  # must wait for socket before accessing .tab
+
+    app.storage.client['step'] = 1
+
+    def next_step():
+        app.storage.client['step'] += 1
+        step_label.set_text(f"Step {app.storage.client['step']}")
+
+    step_label = ui.label(f"Step {app.storage.client['step']}")
+    ui.button('Next', on_click=next_step)
+```
+
+---
+
+## `app.storage.tab` — Tab-Scoped
+
+Similar to `client` but survives page reloads within the same browser tab. Each tab gets its own isolated dictionary. Tabs that are duplicated inherit the original tab's storage.
+
+**Use for:** Shopping cart contents, multi-step form progress, state that should survive a refresh but not bleed into a different tab.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+async def index():
+    await ui.context.client.connected()
+
+    if 'cart' not in app.storage.tab:
+        app.storage.tab['cart'] = []
+
+    def add_item(name: str):
+        app.storage.tab['cart'].append(name)
+        cart_label.set_text(f"Cart: {app.storage.tab['cart']}")
+
+    cart_label = ui.label(f"Cart: {app.storage.tab.get('cart', [])}")
+    ui.button('Add Apple',  on_click=lambda: add_item('Apple'))
+    ui.button('Add Banana', on_click=lambda: add_item('Banana'))
+```
+
+<Warning>
+`app.storage.tab` requires an active socket connection. Access it only after `await ui.context.client.connected()` or inside event handlers (which fire after connection).
+</Warning>
+
+---
+
+## `app.storage.user` — User-Scoped (Persistent)
+
+Server-side dictionary keyed by a session cookie ID. Shared across all tabs in the same browser session and persisted on disk (or Redis). Survives page reloads and server restarts.
+
+**Use for:** User preferences, authentication state, notification settings, anything that should persist between visits.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    # Read with a default
+    username = app.storage.user.get('username', '')
+    ui.label(f'Welcome back, {username}!' if username else 'New visitor')
+
+    name_input = ui.input('Your name', value=username)
+
+    def save():
+        app.storage.user['username'] = name_input.value
+        ui.notify('Saved!', type='positive')
+
+    ui.button('Save', on_click=save)
+
+ui.run(storage_secret='change-me-in-production')
+```
+
+### Binding Directly to User Storage
+
+Because `app.storage.user` is an `ObservableDict`, you can bind UI elements to it directly:
+
+```python
+@ui.page('/settings')
+def settings():
+    ui.switch('Dark mode').bind_value(app.storage.user, 'dark_mode')
+    ui.input('Display name').bind_value(app.storage.user, 'display_name')
+```
+
+---
+
+## `app.storage.browser` — Browser Cookie Storage
+
+Data stored directly in the encrypted session cookie in the user's browser. Shared across all server instances (stateless). Read-only after the HTTP response has been sent.
+
+**Use for:** Reading the session ID, storing a small amount of cross-device-inaccessible state. Prefer `app.storage.user` for most cases — it has larger capacity, better security, and can be modified at any time.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    # Read the auto-generated session ID
+    session_id = app.storage.browser.get('id', 'unknown')
+    ui.label(f'Session: {session_id}')
+
+    # Write is only valid before the response is sent (i.e. synchronously in the page builder)
+    app.storage.browser['visited'] = True
+```
+
+<Warning>
+After `await ui.context.client.connected()` the response has already been sent. Any attempt to **write** to `app.storage.browser` after that point raises an error. Use `app.storage.user` if you need to update data in event handlers.
+</Warning>
+
+---
+
+## `app.storage.general` — Server-Wide (Persistent)
+
+Shared dictionary visible to every user and every connected client. Backed by a JSON file on disk (`<storage_path>/storage-general.json`) by default. Use Redis for multi-instance deployments.
+
+**Use for:** Site-wide counters, feature flags, shared configuration, leaderboards.
+
+```python
+from nicegui import app, ui
+
+@ui.page('/')
+def index():
+    count = app.storage.general.get('visit_count', 0) + 1
+    app.storage.general['visit_count'] = count
+    ui.label(f'This page has been visited {count} times across all users.')
+```
+
+---
+
+## Redis Backend
+
+For deployments with multiple server instances, swap the default file-backed storage for Redis by setting the `NICEGUI_REDIS_URL` environment variable before starting the app:
+
+```bash
+export NICEGUI_REDIS_URL=redis://localhost:6379/0
+python main.py
+```
+
+Or configure it in Python before `ui.run()`:
+
+```python
+from nicegui.storage import Storage
+
+Storage.redis_url = 'redis://localhost:6379/0'
+Storage.redis_key_prefix = 'myapp:'   # optional, default is 'nicegui:'
+```
+
+When Redis is configured, `app.storage.general` and `app.storage.user` both use `RedisPersistentDict` instead of `FilePersistentDict`. Tab storage gets a TTL equal to `Storage.max_tab_storage_age` (default 30 days).
+
+---
+
+## `PersistentDict` and `ObservableDict` Behavior
+
+<Accordion title="How storage writes are saved to disk">
+`PersistentDict` (the base for `user` and `general` storage) extends `ObservableDict`. Every mutation (`__setitem__`, `__delitem__`, `update`, `pop`, `clear`) schedules a debounced async write to disk. There is no explicit `save()` call — writes happen automatically within a few milliseconds.
+
+Reads are synchronous and return the in-memory copy. The initial `await storage.initialize()` loads the persisted JSON from disk into memory.
+</Accordion>
+
+<Accordion title="Storage file location">
+Files are written to `.nicegui/` in the working directory by default. Change it with:
+
+```python
+from nicegui.storage import Storage
+from pathlib import Path
+
+Storage.path = Path('/var/myapp/storage')
+```
+
+Or with the environment variable `NICEGUI_STORAGE_PATH`.
+</Accordion>
+
+---
+
+## The Module-Level Variable Anti-Pattern
+
+<Warning>
+**Never use module-level mutable variables as per-user state.** They are shared across the entire server process.
+</Warning>
+
+```python
+# ❌ BAD: all users share the same list
+items = []
+
+@ui.page('/')
+def index():
+    ui.button('Add', on_click=lambda: items.append('x'))
+    ui.label(str(items))  # every user sees every other user's items!
+```
+
+```python
+# ✅ GOOD option 1: local variable (per page load, lost on reload)
+@ui.page('/')
+def index():
+    items: list[str] = []
+    label = ui.label(str(items))
+    def add():
+        items.append('x')
+        label.set_text(str(items))
+    ui.button('Add', on_click=add)
+```
+
+```python
+# ✅ GOOD option 2: user storage (persists across reloads)
+@ui.page('/')
+def index():
+    if 'items' not in app.storage.user:
+        app.storage.user['items'] = []
+
+    label = ui.label(str(app.storage.user['items']))
+
+    def add():
+        app.storage.user['items'].append('x')
+        label.set_text(str(app.storage.user['items']))
+
+    ui.button('Add', on_click=add)
+
+ui.run(storage_secret='change-me')
+```
+
+---
+
+## Quick Decision Guide
+
+```
+Is the data needed across browser tabs?
+  ├── No  → app.storage.client  (connection only)
+  ├── Yes, within same browser session?
+  │     ├── No  → app.storage.tab   (survives reloads)
+  │     └── Yes → Does it need to persist across server restarts?
+  │                 ├── No  → app.storage.user (in-memory, session cookie)
+  │                 └── Yes → app.storage.user (file/Redis-backed)
+  └── Shared across ALL users?
+        └── Yes → app.storage.general  (file or Redis)
+```
