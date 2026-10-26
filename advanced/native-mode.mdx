@@ -1,5 +1,5 @@
 ---
-title: "Native Desktop Mode for NiceGUI Applications"
+title: "Native Desktop Mode for NiceGUI Apps with pywebview"
 sidebarTitle: "Native Mode"
 description: "Run NiceGUI as a desktop app with a native window using pywebview — configure window size, title, frameless mode, and platform-specific options."
 ---
@@ -25,7 +25,7 @@ pip install "nicegui[native]"
 Pass `native=True` to `ui.run()`. NiceGUI automatically picks an open port, hides the browser-open behaviour, and launches a pywebview window:
 
 ```python
-from nicegui import ui
+from nicegui import app, ui
 
 @ui.page('/')
 def index():

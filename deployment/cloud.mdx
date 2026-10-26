@@ -103,7 +103,7 @@ swap_size_mb = 2048
     timeout = "10s"
     grace_period = "1m0s"
     method = "get"
-    path = "/health"
+    path = "/status"
     protocol = "http"
     tls_skip_verify = false
 ```
@@ -111,7 +111,7 @@ swap_size_mb = 2048
 Key points:
 - `force_https = true` on port 80 redirects all HTTP traffic to HTTPS automatically.
 - `kill_signal = "SIGTERM"` ensures NiceGUI receives the standard shutdown signal for graceful cleanup.
-- The `/health` endpoint is polled every 20 seconds to confirm the app is alive.
+- The `/status` endpoint is polled every 20 seconds to confirm the app is alive.
 
 ### fly.dockerfile
 

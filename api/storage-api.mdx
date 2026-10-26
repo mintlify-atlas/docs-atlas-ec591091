@@ -1,7 +1,7 @@
 ---
-title: "NiceGUI Storage API — Per-User and Shared State"
+title: "NiceGUI Storage API — Per-User and Shared State Scopes"
 sidebarTitle: "Storage API"
-description: "Complete reference for app.storage scopes in NiceGUI: client, tab, user, browser, and general — including ObservableDict, PersistentDict, and Redis backend."
+description: "Complete reference for app.storage in NiceGUI: client, tab, user, browser, and general scopes — plus ObservableDict, PersistentDict, and Redis backend."
 ---
 
 NiceGUI's storage system gives you several pre-built places to keep state, each with a different lifetime and scope. All storage scopes expose a dict-like interface backed by `ObservableDict`, so changes can be watched and bound to UI elements just like any other Python dict.
@@ -68,11 +68,11 @@ async def index():
     app.storage.tab['visits'] = app.storage.tab.get('visits', 0) + 1
     ui.label(f"Tab visits: {app.storage.tab['visits']}")
 
-ui.run(storage_secret='secret')
+ui.run()
 ```
 
 <ParamField path="app.storage.tab" type="ObservableDict">
-  Per-tab in-memory store. Survives page reloads. Requires `storage_secret`. Automatically pruned after `max_tab_storage_age` seconds of inactivity (default 30 days).
+  Per-tab in-memory store. Survives page reloads. No `storage_secret` required. Automatically pruned after `max_tab_storage_age` seconds of inactivity (default 30 days).
 </ParamField>
 
 ---
@@ -213,7 +213,7 @@ Nested dicts, lists, and sets assigned into an `ObservableDict` are automaticall
 `PersistentDict` extends `ObservableDict` with a persistence layer. NiceGUI provides two implementations:
 
 - **`FilePersistentDict`** — stores data as a JSON file under `Storage.path` (default: `.nicegui/`).
-- **`RedisPersistentDict`** — stores data in Redis when `storage_backend='redis'` is configured.
+- **`RedisPersistentDict`** — stores data in Redis when `Storage.redis_url` is configured.
 
 <Accordion title="Configuring the storage path">
 
@@ -244,12 +244,15 @@ pip install nicegui[redis]
 
 **Configuration:**
 
+Redis is enabled by setting `Storage.redis_url` before calling `ui.run()`:
+
 ```python
-ui.run(
-    storage_secret='my-secret',
-    storage_backend='redis',
-    redis_url='redis://localhost:6379',
-)
+from nicegui import ui
+from nicegui.storage import Storage
+
+Storage.redis_url = 'redis://localhost:6379'
+
+ui.run(storage_secret='my-secret')
 ```
 
 You can also use the environment variable:
@@ -258,11 +261,11 @@ You can also use the environment variable:
 NICEGUI_REDIS_URL=redis://localhost:6379 python main.py
 ```
 
-<ParamField path="storage_backend" type="str" default="'file'">
-  Storage backend to use. Set to `'redis'` to enable Redis persistence for `app.storage.user` and `app.storage.general`.
+<ParamField path="Storage.redis_url" type="str | None" default="None">
+  Redis connection URL (e.g. `'redis://localhost:6379'`). When set, Redis is used for persistence of `app.storage.user`, `app.storage.general`, and `app.storage.tab`. Also reads from the `NICEGUI_REDIS_URL` environment variable.
 </ParamField>
-<ParamField path="redis_url" type="str | None" default="None">
-  Redis connection URL (e.g. `'redis://localhost:6379'`). Required when `storage_backend='redis'`. Also reads from the `NICEGUI_REDIS_URL` environment variable.
+<ParamField path="Storage.redis_key_prefix" type="str" default="'nicegui:'">
+  Prefix applied to all Redis keys. Also reads from the `NICEGUI_REDIS_KEY_PREFIX` environment variable.
 </ParamField>
 
 <Note>

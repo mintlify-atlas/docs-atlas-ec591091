@@ -1,7 +1,7 @@
 ---
-title: "NiceGUI Input Elements API Reference"
+title: "NiceGUI Input Elements API Reference — Forms & Controls"
 sidebarTitle: "Input Elements"
-description: "API reference for NiceGUI form and input elements: text input, textarea, number, select, radio, checkbox, switch, slider, date, time, color, upload, and button."
+description: "API reference for NiceGUI input elements: button, text input, number, select, radio, checkbox, switch, slider, date, time, color picker, and file upload."
 ---
 
 NiceGUI provides a rich set of form controls for collecting user input. All input elements inherit from the `ValueElement` mixin, which exposes `.value`, `bind_value()`, `bind_value_to()`, `bind_value_from()`, and `set_value()` as universal patterns. Most elements also accept an `on_change` callback whose argument is a `ValueChangeEventArguments` object with `.value`, `.previous_value`, `.sender`, and `.client` fields.
@@ -373,8 +373,8 @@ ui.button('Submit').bind_enabled(cb, 'value')
 ui.switch(
     text: str = '',
     *,
-    value: bool = False,
-    on_change: Handler[ValueChangeEventArguments[bool]] | None = None,
+    value: bool | None = False,
+    on_change: Handler[ValueChangeEventArguments[bool | None]] | None = None,
 )
 ```
 
@@ -384,7 +384,7 @@ A toggle switch based on Quasar's `QToggle`.
   Label text.
 </ParamField>
 
-<ParamField path="value" type="bool" default="False">
+<ParamField path="value" type="bool | None" default="False">
   Initial on/off state.
 </ParamField>
 
@@ -405,7 +405,6 @@ ui.toggle(
     *,
     value: Any = None,
     on_change: Handler[ValueChangeEventArguments[Any]] | None = None,
-    multiple: bool = False,
     clearable: bool = False,
 )
 ```
@@ -414,10 +413,6 @@ A button-group toggle that selects from a fixed set of options.
 
 <ParamField path="options" type="list | dict" required>
   Options as a list or `{value: label}` dict.
-</ParamField>
-
-<ParamField path="multiple" type="bool" default="False">
-  Allow multiple selections simultaneously.
 </ParamField>
 
 <ParamField path="clearable" type="bool" default="False">
@@ -524,7 +519,7 @@ ui.knob(
     color: str | None = 'primary',
     center_color: str | None = None,
     track_color: str | None = None,
-    size: str = '2em',
+    size: str | None = None,
     show_value: bool = False,
     on_change: Handler | None = None,
 )
@@ -624,22 +619,22 @@ ui.label('').bind_text(t, 'value', lambda v: f'Time: {v}')
 
 ```python
 ui.color_input(
-    label: str = '',
+    label: str | None = None,
     *,
-    placeholder: str = 'Pick a color',
-    value: str = '#000000',
-    on_change: Handler[ValueChangeEventArguments[str]] | None = None,
+    placeholder: str | None = None,
+    value: str | None = '',
+    on_change: Handler[ValueChangeEventArguments[str | None]] | None = None,
 )
 ```
 
 A text input with an inline color picker popup. The value is a hex color string.
 
-<ParamField path="label" type="str" default="">
+<ParamField path="label" type="str | None" default="None">
   Field label.
 </ParamField>
 
-<ParamField path="value" type="str" default="'#000000'">
-  Initial hex color.
+<ParamField path="value" type="str | None" default="''">
+  Initial hex color string (e.g. `'#4CAF50'`).
 </ParamField>
 
 ```python

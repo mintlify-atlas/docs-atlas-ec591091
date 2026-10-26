@@ -1,7 +1,7 @@
 ---
 title: "NiceGUI Timers & Background Tasks: Async Concurrency"
 sidebarTitle: "Timers & Tasks"
-description: "Run periodic callbacks with ui.timer, fire-and-forget coroutines with background_tasks.create, and offload blocking work with run.io_bound and run.cpu_bound."
+description: "Poll and update the UI with ui.timer, run fire-and-forget tasks with background_tasks.create, and move blocking I/O or CPU work off the event loop safely."
 ---
 
 NiceGUI runs on a single asyncio event loop shared by every page, every user, and every timer. Understanding this architecture is the key to writing applications that stay responsive — and avoiding the most common pitfall: blocking the loop with synchronous code.

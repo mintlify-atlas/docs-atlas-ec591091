@@ -1,5 +1,5 @@
 ---
-title: "@ui.page — Per-User Page Decorator"
+title: "@ui.page — Private Per-User Page Decorator for NiceGUI"
 sidebarTitle: "@ui.page"
 description: "API reference for the @ui.page decorator, ui.navigate namespace, and PageArguments for query string access in NiceGUI applications."
 ---
@@ -68,7 +68,7 @@ class page:
 </ParamField>
 
 <ParamField path="response_timeout" type="float" default="3.0">
-  Maximum seconds the page builder function has to produce its initial HTML response. If the function is still running after this timeout, NiceGUI serves the elements created so far with a warning. Increase this for pages that perform database queries or other async I/O before rendering. To wait safely for slow operations, call `await ui.context.client.connected()` and then increase this value.
+  Maximum seconds the page builder function has to produce its initial HTML response. If the function is still running after this timeout, the build task is cancelled and NiceGUI returns a 500 error page instead of the partially-built page. Increase this for pages that perform database queries or other async I/O before rendering. To wait safely for slow operations, call `await ui.context.client.connected()` inside an async page function rather than relying on a higher timeout.
 </ParamField>
 
 <ParamField path="reconnect_timeout" type="float | None" default="None">

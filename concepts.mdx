@@ -1,7 +1,7 @@
 ---
 title: "NiceGUI Core Concepts: Mental Models and Architecture"
 sidebarTitle: "Concepts"
-description: "Understand NiceGUI's mental model: no virtual DOM, shared state, the slot stack, bindings, async, storage scopes, and the Outbox batching system."
+description: "Understand NiceGUI's mental models: no virtual DOM, shared state, the slot stack, bindings, Python-first rule, async, storage scopes, and the Outbox."
 ---
 
 NiceGUI's API is shaped by a small set of architectural decisions. Understanding these mental models up front prevents the most common bugs and explains why the framework works the way it does. This page covers each one with concrete examples of the patterns to prefer — and the pitfalls to avoid.
@@ -232,7 +232,24 @@ ui.run()
   You can raise `binding_refresh_interval` in `ui.run()` to reduce CPU usage if you have many bindings against plain Python objects and a low update rate is acceptable.
 </Tip>
 
-## 6. Async: The Event Loop Is Shared
+## 6. Python-First Is a Hard Rule, Not Just Style
+
+NiceGUI's Python API is the only source of truth for the client-side DOM. When you bypass it and manipulate the DOM directly via JavaScript:
+
+- NiceGUI's Python-side model diverges from the client DOM — they are out of sync.
+- The next time NiceGUI sends an update for that element, it overwrites your JavaScript change.
+- Bindings and `@ui.refreshable` don't know about changes made outside the Python model.
+
+Use `ui.run_javascript()` only for things that are truly impossible via the Python API (e.g., reading `window.innerWidth`). Never use it to style, show/hide, or update content — use the Python API equivalents instead:
+
+| Situation | Wrong | Right |
+|---|---|---|
+| Change background color | `ui.add_head_html('<style>body{background:blue}</style>')` | `ui.query('body').classes('bg-blue')` |
+| Hide an element | `element.run_method('hide')` | `element.visible = False` |
+| Style a button | `ui.button(...).style('background-color: green')` | `ui.button(..., color='green')` |
+| Show a message | custom HTML overlay | `ui.notify('message')` |
+
+## 7. Async: The Event Loop Is Shared
 
 NiceGUI runs in a single asyncio event loop. Every page, every user, and every timer share it. **Blocking the loop freezes the entire application for all users.**
 
@@ -312,7 +329,7 @@ async def index():
 ui.run()
 ```
 
-## 7. Storage Scopes
+## 8. Storage Scopes
 
 Choose the right storage scope based on lifetime and sharing requirements:
 
@@ -322,7 +339,7 @@ Choose the right storage scope based on lifetime and sharing requirements:
 | `app.storage.client` | per browser connection | lost on page reload |
 | `app.storage.tab` | per browser tab | survives reload; lost when tab closes |
 | `app.storage.user` | per user (session cookie) | until cookie expires |
-| `app.storage.browser` | per browser (read-only outside initial request) | until cookie expires |
+| `app.storage.browser` | per browser (signed cookie, read-only outside the initial request) | until cookie expires |
 | `app.storage.general` | all users | persistent on disk |
 | module-level variable | entire server process | until server restart |
 
@@ -348,7 +365,7 @@ def index():
 ui.run(storage_secret='change-me-in-production')
 ```
 
-## 8. The Outbox — Automatic Batching of Updates
+## 9. The Outbox — Automatic Batching of Updates
 
 NiceGUI accumulates all element changes within a single event handler execution and sends them in **one WebSocket message**. You do not need to batch updates manually within a callback.
 

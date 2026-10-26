@@ -1,7 +1,7 @@
 ---
-title: "Styling & Theming in NiceGUI Applications"
+title: "Styling & Theming in NiceGUI: Colors, CSS, Dark Mode"
 sidebarTitle: "Styling & Theming"
-description: "Apply Quasar color themes, dark mode, Tailwind classes, CSS selectors, and inline styles to build polished NiceGUI interfaces."
+description: "Apply Quasar color themes, dark mode, Tailwind utility classes, CSS selectors, and inline styles to build polished NiceGUI interfaces."
 ---
 
 NiceGUI gives you several complementary styling mechanisms — from high-level Quasar design tokens all the way down to raw CSS — so you can match any visual design without leaving Python. Because NiceGUI renders on top of Quasar and Vue 3, the full power of both ecosystems is available alongside NiceGUI's own helpers.
@@ -80,7 +80,7 @@ def index():
         ui.button('Light', on_click=dark.disable)
         ui.button('Dark',  on_click=dark.enable)
         ui.button('Auto',  on_click=dark.auto)
-        ui.button('Toggle', on_click=dark.toggle)
+        ui.button('Toggle', on_click=dark.toggle)  # raises ValueError if value is None (auto mode)
 
     # Persist the choice across browser sessions
     ui.checkbox('Dark mode').bind_value(dark, 'value')
@@ -215,7 +215,7 @@ def index():
 
 ### `ui.add_css()`
 
-A convenience shorthand that wraps a CSS string (or a CSS file path) in a `<style>` tag and injects it via `add_head_html`. Accepts `shared=True`.
+A convenience shorthand that injects a CSS string (or the contents of a CSS file path) into the page via an inline `<script>` tag that calls NiceGUI's internal `addStyle()` helper. Accepts `shared=True`.
 
 ```python
 from nicegui import ui

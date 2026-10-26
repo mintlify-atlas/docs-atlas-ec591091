@@ -1,5 +1,5 @@
 ---
-title: "Building Custom Components in NiceGUI"
+title: "Building Custom Vue Components in NiceGUI Applications"
 sidebarTitle: "Custom Components"
 description: "Create custom HTML elements, wrap Vue single-file components, load ES modules, serve static assets, and extend NiceGUI's Element base class."
 ---
@@ -104,7 +104,7 @@ with ui.row(align_items='center'):
     toggle = OnOff('State', on_change=lambda e: ui.notify(f'Value → {e.args}'))
     ui.button('Reset', on_click=toggle.reset).props('outline')
 
-ui.run(uvicorn_reload_includes='*.py,*.vue')
+ui.run(uvicorn_reload_includes='*.py,*.js,*.vue')
 ```
 
 <Note>

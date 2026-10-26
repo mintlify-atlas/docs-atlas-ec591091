@@ -190,31 +190,35 @@ The `prefix` on `APIRouter` is prepended automatically to every route defined in
 
 `ui.sub_pages()` renders different content inside a page based on the URL path, **without** a full page reload. It is NiceGUI's built-in client-side router for single-page application (SPA) patterns.
 
+Pass a `routes` dictionary mapping path patterns to builder functions, or call `.add(path, func)` on the returned element to register routes after construction:
+
 ```python
 from nicegui import ui
 from nicegui.page_arguments import PageArguments
 
+def home():
+    ui.label('Welcome home!')
+
+def about():
+    ui.label('About this app.')
+
+def item(args: PageArguments):
+    uid = args.path_parameters['item_id']
+    q   = args.query_parameters.get('ref', '')
+    ui.label(f'Item {uid} (ref: {q})')
+
 @ui.page('/')
+@ui.page('/{_:path}')
 def main():
     with ui.left_drawer():
         ui.link('Home', '/home')
         ui.link('About', '/about')
 
-    with ui.sub_pages():
-        # Each builder is matched against the current path
-        @ui.sub_pages.route('/home')
-        def home():
-            ui.label('Welcome home!')
-
-        @ui.sub_pages.route('/about')
-        def about():
-            ui.label('About this app.')
-
-        @ui.sub_pages.route('/item/{item_id}')
-        def item(args: PageArguments):
-            uid = args.path_parameters['item_id']
-            q   = args.query_parameters.get('ref', '')
-            ui.label(f'Item {uid} (ref: {q})')
+    ui.sub_pages({
+        '/home': home,
+        '/about': about,
+        '/item/{item_id}': item,
+    })
 ```
 
 ### `PageArguments`

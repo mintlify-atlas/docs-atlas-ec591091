@@ -1,5 +1,5 @@
 ---
-title: "Media Elements in NiceGUI"
+title: "Media Elements in NiceGUI — Images, Video, 3D & Maps"
 sidebarTitle: "Media"
 description: "Add images, video, audio, interactive images, 3D scenes, Leaflet maps, and joysticks to your NiceGUI app with practical code examples."
 ---
@@ -188,9 +188,14 @@ ui.scene(
     grid: bool | tuple[int, int] = True,
     camera: SceneCamera | None = None,
     on_click: Handler[SceneClickEventArguments] | None = None,
+    click_events: list[str] = ['click', 'dblclick'],
+    on_drag_start: Handler[SceneDragEventArguments] | None = None,
+    on_drag_end: Handler[SceneDragEventArguments] | None = None,
+    drag_constraints: str = '',
     background_color: str = '#eee',
     control_type: Literal['orbit', 'trackball', 'map'] = 'orbit',
     fps: int = 20,
+    show_stats: bool = False,
 )
 ```
 
@@ -208,6 +213,8 @@ ui.scene(
 | Point cloud | `scene.point_cloud()` | Particle system |
 | GLTF | `scene.gltf()` | Load a `.gltf`/`.glb` model |
 | STL | `scene.stl()` | Load a `.stl` mesh |
+| Texture | `scene.texture()` | Textured mesh |
+| Group | `scene.group()` | Group objects for joint transforms |
 | Text | `scene.text()` | Flat HTML label |
 | Text3D | `scene.text3d()` | 3D extruded text |
 | Spot light | `scene.spot_light()` | Directional light source |

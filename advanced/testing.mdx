@@ -1,5 +1,5 @@
 ---
-title: "Testing NiceGUI Applications with pytest"
+title: "Testing NiceGUI Applications with pytest and Selenium"
 sidebarTitle: "Testing"
 description: "Write fast user-simulation tests and full browser Selenium tests for NiceGUI apps using the built-in pytest plugin with User and Screen fixtures."
 ---
@@ -236,7 +236,7 @@ def test_navigation(screen: Screen) -> None:
 | `screen.find(text)` | Return the `WebElement` containing the text |
 | `screen.find_by_css(selector)` | Return a `WebElement` by CSS selector |
 | `screen.wait_for(text)` | Wait until the text appears (up to `IMPLICIT_WAIT` seconds) |
-| `screen.shot(name)` | Save a PNG screenshot to `screenshots/` |
+| `screen.shot(name, *, failed)` | Save a PNG screenshot to `screenshots/`; pass `failed=True` to suffix the filename with `.failed` |
 | `screen.current_path` | The current browser URL path |
 
 <Tip>

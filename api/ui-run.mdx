@@ -1,5 +1,5 @@
 ---
-title: "ui.run() — Start the NiceGUI Server"
+title: "ui.run() — Start and Configure the NiceGUI Web Server"
 sidebarTitle: "ui.run()"
 description: "Complete API reference for ui.run() and ui.run_with(). Configure host, port, dark mode, native windows, auto-reload, storage, and more."
 ---
@@ -9,7 +9,7 @@ description: "Complete API reference for ui.run() and ui.run_with(). Configure h
 Most parameters only take effect on a full server restart. When `reload=True` (the default in development), changing these values requires stopping and restarting the process — they are **not** hot-reloaded.
 
 ```python
-import nicegui.ui as ui
+from nicegui import ui
 
 ui.label('Hello, world!')
 ui.run(port=8080, title='My App', dark=True)
@@ -189,6 +189,10 @@ def run(
 
 <ParamField path="markdown" type="bool" default="False">
   When a client sends `Accept: text/markdown`, serve a Markdown representation of the page instead of HTML. Experimental. Can be overridden per page.
+
+  <Warning>
+    This parameter is **deprecated** and may be removed or changed in a future major version. Its default may change to `True` in NiceGUI 4.0.
+  </Warning>
 </ParamField>
 
 <ParamField path="**kwargs" type="Any">

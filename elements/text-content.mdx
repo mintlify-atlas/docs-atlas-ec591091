@@ -1,5 +1,5 @@
 ---
-title: "Text & Content Elements in NiceGUI"
+title: "Text & Content Elements in NiceGUI — Labels to Chips"
 sidebarTitle: "Text & Content"
 description: "Display text, markdown, HTML, code blocks, icons, avatars, badges, and chips in NiceGUI with real constructor signatures and examples."
 ---
@@ -157,9 +157,41 @@ ui.run()
 
 ## `ui.mermaid`
 
-Renders [Mermaid](https://mermaid.js.org/) diagrams defined as text. Enabled via the `markdown2` `'mermaid'` extra on `ui.markdown`, but also available as a standalone element.
+Renders [Mermaid](https://mermaid.js.org/) diagrams defined as text. Can be used as a standalone element or embedded inside `ui.markdown` by passing `'mermaid'` in the `extras` list.
 
-**Example**
+**Constructor**
+
+```python
+ui.mermaid(
+    content: str,
+    config: dict | None = None,
+    *,
+    on_node_click: Handler[MermaidNodeClickEventArguments] | None = None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `content` | `str` | — | Mermaid diagram definition |
+| `config` | `dict \| None` | `None` | Config passed to `mermaid.initialize()` |
+| `on_node_click` | `Handler \| None` | `None` | Callback when a node is clicked |
+
+**Standalone example**
+
+```python
+from nicegui import ui
+
+ui.mermaid('''
+graph LR
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Do it]
+    B -->|No| D[Skip]
+''')
+
+ui.run()
+```
+
+**Via `ui.markdown` extras**
 
 ```python
 from nicegui import ui
@@ -181,6 +213,16 @@ ui.run()
 ## `ui.restructured_text`
 
 Renders reStructuredText (RST) content using `docutils`. Useful when your content source is `.rst` documentation.
+
+**Constructor**
+
+```python
+ui.restructured_text(content: str = '')
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `content` | `str` | `''` | The reStructuredText source string |
 
 **Example**
 

@@ -1,5 +1,5 @@
 ---
-title: "Input & Control Elements in NiceGUI"
+title: "Input & Control Elements in NiceGUI — Complete Guide"
 sidebarTitle: "Inputs & Controls"
 description: "Comprehensive guide to NiceGUI's form inputs and controls: text, number, select, radio, checkbox, switch, slider, button, date, time, and more."
 ---
@@ -490,6 +490,36 @@ ui.run()
 
 File-upload control backed by Quasar's `QUploader`.
 
+**Constructor**
+
+```python
+ui.upload(
+    *,
+    multiple: bool = False,
+    max_file_size: int | None = None,
+    max_total_size: int | None = None,
+    max_files: int | None = None,
+    on_begin_upload: Handler[UiEventArguments] | None = None,
+    on_upload: Handler[UploadEventArguments] | None = None,
+    on_multi_upload: Handler[MultiUploadEventArguments] | None = None,
+    on_rejected: Handler[UiEventArguments] | None = None,
+    label: str = '',
+    auto_upload: bool = False,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `multiple` | `bool` | `False` | Allow uploading multiple files at once |
+| `max_file_size` | `int \| None` | `None` | Maximum file size in bytes |
+| `max_total_size` | `int \| None` | `None` | Maximum total size of all files in bytes |
+| `max_files` | `int \| None` | `None` | Maximum number of files |
+| `on_upload` | `Handler \| None` | `None` | Callback called for each uploaded file |
+| `on_multi_upload` | `Handler \| None` | `None` | Callback called after all files are uploaded |
+| `on_rejected` | `Handler \| None` | `None` | Callback called when files are rejected |
+| `label` | `str` | `''` | Label for the uploader |
+| `auto_upload` | `bool` | `False` | Automatically upload files when selected |
+
 **Example**
 
 ```python
@@ -497,7 +527,7 @@ from nicegui import ui
 
 ui.upload(
     label='Attach file',
-    on_upload=lambda e: ui.notify(f'Received {e.name}'),
+    on_upload=lambda e: ui.notify(f'Received {e.file.name}'),
     multiple=True,
     max_file_size=5_000_000,
 ).props('accept=".pdf,.png,.jpg"')

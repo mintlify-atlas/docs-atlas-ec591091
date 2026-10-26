@@ -10,12 +10,12 @@ Most parameters only take effect on a full server restart — they are **not** r
 
 ## Server & Network
 
-<ParamField path="host" type="str | None" default="'0.0.0.0' (web) / '127.0.0.1' (native)">
-  The network interface the server binds to. Defaults to `'0.0.0.0'` so the app is reachable on all interfaces in web mode. When `native=True` the default switches to `'127.0.0.1'` to avoid exposing the internal server. Override to `'0.0.0.0'` explicitly in production containers.
+<ParamField path="host" type="str | None" default="None">
+  The network interface the server binds to. Defaults to `None`, which resolves to `'0.0.0.0'` in web mode (reachable on all interfaces) and `'127.0.0.1'` in native mode (loopback only). Override explicitly to `'0.0.0.0'` in production containers.
 </ParamField>
 
-<ParamField path="port" type="int | None" default="8080 (web) / auto-detected (native)">
-  TCP port the server listens on. In web mode defaults to `8080`. In native mode NiceGUI automatically finds a free port so you rarely need to set this.
+<ParamField path="port" type="int | None" default="None">
+  TCP port the server listens on. Defaults to `None`, which resolves to `8080` in web mode. In native mode NiceGUI automatically finds a free open port, so you rarely need to set this.
 </ParamField>
 
 <ParamField path="reload" type="bool" default="True">
@@ -60,6 +60,10 @@ Most parameters only take effect on a full server restart — they are **not** r
 
 <ParamField path="message_history_length" type="int" default="1000">
   Number of WebSocket messages stored per client session so they can be replayed after a brief disconnection. Set to `0` to disable the replay buffer and reduce memory usage.
+</ParamField>
+
+<ParamField path="on_air" type="str | True | None" default="None">
+  Tech preview: enables temporary remote access via the NiceGUI On Air service. Set to `True` to use an auto-assigned token, or pass a specific token string. When set, NiceGUI tunnels your local app through the On Air relay so it is reachable from anywhere without opening firewall ports. Disabled by default.
 </ParamField>
 
 ## Storage & Sessions
@@ -108,6 +112,10 @@ Most parameters only take effect on a full server restart — they are **not** r
 
 <ParamField path="tailwind" type="bool" default="True">
   Enable Tailwind CSS utility classes. When `True`, you can use `.classes('text-lg font-bold')` on any element. Disable if you are building a CSS-framework-free UI to avoid loading the Tailwind stylesheet.
+</ParamField>
+
+<ParamField path="unocss" type="'mini' | 'wind3' | 'wind4' | None" default="None">
+  Use [UnoCSS](https://unocss.dev/) with the specified preset instead of Tailwind CSS. Options are `'mini'` (minimal utility classes), `'wind3'` (Tailwind v3 compatibility), and `'wind4'` (Tailwind v4 compatibility). When set, the `tailwind` parameter is ignored. Defaults to `None` (UnoCSS disabled).
 </ParamField>
 
 <ParamField path="prod_js" type="bool" default="True">

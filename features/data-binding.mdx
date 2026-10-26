@@ -162,9 +162,9 @@ label.bind_text_from(counter, 'value', backward=lambda v: f'Count: {v}')
 ui.button('+1', on_click=counter.increment)
 ```
 
-### `@binding.bindable_dataclass`
+### `@bindable_dataclass`
 
-For dataclasses, use the `@binding.bindable_dataclass` decorator to make fields bindable with a single annotation:
+For dataclasses, use the `@bindable_dataclass` decorator (from `nicegui.binding`) to make fields bindable with a single annotation:
 
 ```python
 from nicegui import ui
